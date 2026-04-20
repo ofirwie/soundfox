@@ -16,6 +16,7 @@ interface ResultsStepProps {
   result: PipelineResult;
   playlistName: string;
   playlistId: string;
+  onBack?: () => void;
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -57,7 +58,7 @@ function sortTracks(tracks: ScoredTrack[], key: SortKey, randomSeed: number): Sc
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ResultsStep({ result, playlistName, playlistId }: ResultsStepProps): ReactElement {
+export default function ResultsStep({ result, playlistName, playlistId, onBack }: ResultsStepProps): ReactElement {
   const { results, tasteVector, coreGenres } = result;
 
   // ── Destination playlist ───────────────────────────────────────────────────
@@ -302,13 +303,45 @@ export default function ResultsStep({ result, playlistName, playlistId }: Result
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} className="hidden" />
 
       {/* Header */}
-      <div>
-        <h2 className="text-3xl font-bold mb-1">Your Recommendations</h2>
-        <p className="text-[var(--text-secondary)] text-sm">
-          Found {results.length} tracks matching the audio DNA of{" "}
-          <span className="text-white font-medium">{playlistName}</span>
-        </p>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex-1">
+          <h2 className="text-3xl font-bold mb-1">Your Recommendations</h2>
+          <p className="text-[var(--text-secondary)] text-sm">
+            Found {results.length} tracks matching the audio DNA of{" "}
+            <span className="text-white font-medium">{playlistName}</span>
+          </p>
+        </div>
+        {onBack && (
+          <button
+            onClick={onBack}
+            className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-4 h-4">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+            </svg>
+            Back to playlists
+          </button>
+        )}
       </div>
+
+      {/* Empty state */}
+      {results.length === 0 && (
+        <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-8 text-center space-y-3">
+          <p className="text-lg font-semibold">No recommendations found</p>
+          <p className="text-[var(--text-secondary)] text-sm max-w-md mx-auto">
+            This usually means: the playlist is empty, ReccoBeats doesn&apos;t have audio features for these
+            tracks, or no candidate artists matched the genre profile. Try a different playlist.
+          </p>
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="mt-2 px-6 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-black rounded-lg font-semibold text-sm"
+            >
+              Pick another playlist
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Persistent badge [Feature 3 — badge] */}
       {addedCount > 0 && (

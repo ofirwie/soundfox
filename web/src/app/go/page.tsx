@@ -143,6 +143,11 @@ export default function GoPage(): ReactElement {
               result={pipelineResult}
               playlistName={selectedPlaylist.name}
               playlistId={selectedPlaylist.id}
+              onBack={() => {
+                setPipelineResult(null);
+                setSelectedPlaylist(null);
+                setMode("home");
+              }}
             />
           )}
         </div>
