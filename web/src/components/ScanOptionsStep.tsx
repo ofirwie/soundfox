@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { type ScanOptions } from "@/lib/discovery-pipeline";
 import { type SpotifyPlaylist } from "@/lib/spotify-client";
+import { loadLastScanOptions, saveLastScanOptions } from "@/lib/storage";
 
 interface ScanOptionsStepProps {
   playlist: SpotifyPlaylist;
@@ -10,12 +11,23 @@ interface ScanOptionsStepProps {
 }
 
 export default function ScanOptionsStep({ playlist, onStart }: ScanOptionsStepProps): React.ReactElement {
-  const [allowKnownArtists, setAllowKnownArtists] = useState(false);
-  const [minYear, setMinYear] = useState(2000);
-  const [resultCount, setResultCount] = useState(500);
+  // Pre-fill with last used options if available
+  const lastOptions = typeof window !== "undefined" ? loadLastScanOptions() : null;
+  const [allowKnownArtists, setAllowKnownArtists] = useState(lastOptions?.allowKnownArtists ?? false);
+  const [minYear, setMinYear] = useState(lastOptions?.minYear ?? 2000);
+  const [resultCount, setResultCount] = useState(lastOptions?.resultCount ?? 500);
 
   function handleStart(): void {
-    onStart({ allowKnownArtists, minYear, resultCount });
+    const options = { allowKnownArtists, minYear, resultCount };
+    saveLastScanOptions(options);
+    onStart(options);
+  }
+
+  function handleQuickStart(): void {
+    if (lastOptions) {
+      saveLastScanOptions(lastOptions);
+      onStart(lastOptions);
+    }
   }
 
   return (
@@ -27,6 +39,24 @@ export default function ScanOptionsStep({ playlist, onStart }: ScanOptionsStepPr
           <span className="text-white font-medium">{playlist.name}</span>.
         </p>
       </div>
+
+      {lastOptions && (
+        <div className="bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-xl p-4 flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-[var(--accent)]">Use your last options</p>
+            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
+              {lastOptions.resultCount} tracks · from {lastOptions.minYear} ·{" "}
+              {lastOptions.allowKnownArtists ? "known artists allowed" : "new artists only"}
+            </p>
+          </div>
+          <button
+            onClick={handleQuickStart}
+            className="px-4 py-2 bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-black rounded-lg font-semibold text-sm transition-colors whitespace-nowrap"
+          >
+            Quick Start &rarr;
+          </button>
+        </div>
+      )}
 
       {/* Allow known artists toggle */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 space-y-2">

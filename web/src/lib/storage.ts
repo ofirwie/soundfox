@@ -9,6 +9,7 @@ const KEYS = {
   HISTORY: "soundfox_history",
   SCAN_STATE: "soundfox_scan_state",         // v2: resume support
   TARGET_PLAYLIST: "soundfox_target_pl",     // v2: last-used destination playlist
+  LAST_SCAN_OPTIONS: "soundfox_last_options", // v2: remember last options for quick re-run
 } as const;
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
@@ -135,4 +136,40 @@ export function loadTargetPlaylist(): SavedTargetPlaylist | null {
   } catch {
     return null;
   }
+}
+
+// ─── Last scan options memory (v2) — skip scan options step on re-run ────────
+
+export function saveLastScanOptions(options: ScanOptions): void {
+  try {
+    localStorage.setItem(KEYS.LAST_SCAN_OPTIONS, JSON.stringify(options));
+  } catch {
+    // Quota exceeded — silently skip
+  }
+}
+
+export function loadLastScanOptions(): ScanOptions | null {
+  const raw = localStorage.getItem(KEYS.LAST_SCAN_OPTIONS);
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as ScanOptions;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Recent playlists — quick re-select last analyzed ────────────────────────
+
+export function getRecentPlaylistIds(): string[] {
+  const history = getHistory();
+  const seen = new Set<string>();
+  const ids: string[] = [];
+  for (const record of history) {
+    if (!seen.has(record.playlistId)) {
+      seen.add(record.playlistId);
+      ids.push(record.playlistId);
+    }
+    if (ids.length >= 5) break;
+  }
+  return ids;
 }
