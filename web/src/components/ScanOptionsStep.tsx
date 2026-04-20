@@ -12,22 +12,20 @@ interface ScanOptionsStepProps {
 }
 
 export default function ScanOptionsStep({ playlist, onStart }: ScanOptionsStepProps): ReactElement {
-  // Pre-fill with last used options if available
-  const [allowKnownArtists, setAllowKnownArtists] = useState(() => {
-    if (typeof window === "undefined") return false;
-    return loadLastScanOptions()?.allowKnownArtists ?? false;
-  });
-  const [minYear, setMinYear] = useState(() => {
-    if (typeof window === "undefined") return 2000;
-    return loadLastScanOptions()?.minYear ?? 2000;
-  });
-  const [resultCount, setResultCount] = useState(() => {
-    if (typeof window === "undefined") return 500;
-    return loadLastScanOptions()?.resultCount ?? 500;
-  });
+  // Hydration-safe: start with defaults on SSR + first client render, then populate
+  const [allowKnownArtists, setAllowKnownArtists] = useState(false);
+  const [minYear, setMinYear] = useState(2000);
+  const [resultCount, setResultCount] = useState(500);
   const [lastOptions, setLastOptions] = useState<ScanOptions | null>(null);
+
   useEffect(() => {
-    setLastOptions(loadLastScanOptions());
+    const saved = loadLastScanOptions();
+    if (saved) {
+      setAllowKnownArtists(saved.allowKnownArtists ?? false);
+      setMinYear(saved.minYear ?? 2000);
+      setResultCount(saved.resultCount ?? 500);
+      setLastOptions(saved);
+    }
   }, []);
 
   function handleStart(): void {

@@ -12,9 +12,9 @@ await context.route("https://api.spotify.com/v1/**", async (route) => {
       contentType: "application/json",
       body: JSON.stringify({
         items: [
-          { id: "pl1", name: "Sample Playlist A", images: [], tracks: { total: 1367 }, owner: { display_name: "You" } },
-          { id: "pl2", name: "Sample Playlist B", images: [], tracks: { total: 40 }, owner: { display_name: "You" } },
-          { id: "pl3", name: "Chill Vibes", images: [], tracks: { total: 120 }, owner: { display_name: "You" } },
+          { id: "pl1", name: "Sample Playlist A", images: [], tracks: { total: 1367 }, owner: { display_name: "Test User" } },
+          { id: "pl2", name: "Sample Playlist B", images: [], tracks: { total: 40 }, owner: { display_name: "Test User" } },
+          { id: "pl3", name: "Chill Vibes", images: [], tracks: { total: 120 }, owner: { display_name: "Test User" } },
         ],
         next: null,
       }),
@@ -23,7 +23,7 @@ await context.route("https://api.spotify.com/v1/**", async (route) => {
     await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ id: "user1", display_name: "Ofir", images: [] }),
+      body: JSON.stringify({ id: "user1", display_name: "Test User", images: [] }),
     });
   } else {
     await route.continue();
@@ -36,7 +36,7 @@ page.on("console", (msg) => consoleLog.push(`[${msg.type()}] ${msg.text()}`));
 page.on("pageerror", (err) => consoleLog.push(`[ERROR] ${err.message}`));
 
 await page.addInitScript(() => {
-  localStorage.setItem("soundfox_client_id", "abcdef1234567890abcdef1234567890");
+  localStorage.setItem("soundfox_client_id", "test-client-id-placeholder-1234");
   localStorage.setItem("soundfox_access_token", "real-token");
   localStorage.setItem("soundfox_token_expiry", String(Date.now() + 3600_000));
   localStorage.setItem("soundfox_history", JSON.stringify([
@@ -53,7 +53,7 @@ const hasPlaylistPicker = bodyText.includes("Choose a Playlist");
 const hasRecent = bodyText.includes("Recently analyzed");
 const hasNightRock = bodyText.includes("Sample Playlist A");
 const hasRockWorkout = bodyText.includes("Sample Playlist B");
-const hasOfir = bodyText.includes("Ofir");
+const hasOfir = bodyText.includes("Test User");
 
 console.log("=== Test results ===");
 console.log("Final URL:", url);

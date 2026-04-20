@@ -9,7 +9,7 @@ from .analyzer import PlaylistProfile
 MIN_ARTIST_FOLLOWERS = 5_000
 MAX_ARTIST_FOLLOWERS = 500_000
 
-# Genres that don't match the Sample Playlist A vibe
+# Genres that are noise — they match tags but not the actual vibe
 EXCLUDED_PRIMARY_GENRES = {
     "glam metal", "glam rock", "rock and roll", "doo-wop", "rockabilly",
     "hardcore punk", "ska punk", "pop rock", "pop", "dance rock",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactElement } from "react";
 import { getClientId, setClientId } from "@/lib/storage";
 
@@ -9,18 +9,19 @@ interface SetupStepProps {
 }
 
 export default function SetupStep({ onComplete }: SetupStepProps): ReactElement {
-  const [clientId, setClientIdValue] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return getClientId() ?? "";
-  });
+  // Hydration-safe: start empty on SSR + first client render, then populate from localStorage
+  const [clientId, setClientIdValue] = useState("");
   const [error, setError] = useState("");
   const [showWhy, setShowWhy] = useState(false);
+  const [isLocalhost, setIsLocalhost] = useState(false);
+  const [port, setPort] = useState("3000");
 
-  // Spotify rejects "localhost" as insecure. 127.0.0.1 is the same thing
-  // but Spotify accepts it. 127.0.0.1 is the universal loopback address —
-  // on EVERY computer it means "this computer". It's not a specific IP.
-  const isLocalhost = typeof window !== "undefined" && window.location.hostname === "localhost";
-  const port = typeof window !== "undefined" ? window.location.port : "3000";
+  useEffect(() => {
+    setClientIdValue(getClientId() ?? "");
+    setIsLocalhost(window.location.hostname === "localhost");
+    setPort(window.location.port);
+  }, []);
+
   const redirectUri = `http://127.0.0.1:${port}/callback`;
 
   function handleSubmit(): void {
