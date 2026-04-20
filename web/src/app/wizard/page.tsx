@@ -135,6 +135,11 @@ export default function WizardPage(): ReactElement {
           result={pipelineResult}
           playlistName={selectedPlaylist.name}
           playlistId={selectedPlaylist.id}
+          onBack={() => {
+            setPipelineResult(null);
+            setSelectedPlaylist(null);
+            setStep(3);
+          }}
         />
       )}
     </WizardLayout>

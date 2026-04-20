@@ -212,6 +212,11 @@ export async function* runPipelineStreaming(
   const trackIds = tracks.map((t) => t.id).filter(Boolean);
   const existingTrackIds = new Set(trackIds);
 
+  console.log(`[SoundFox] Loaded ${tracks.length} tracks (${trackIds.length} with IDs) from playlist ${playlistId}`);
+  if (trackIds.length === 0) {
+    console.warn(`[SoundFox] Playlist returned 0 tracks. Check Spotify: is the playlist truly empty? All tracks could be local files (excluded by API) or unavailable in your market.`);
+  }
+
   // ── Phase 2: Build genre profile ─────────────────────────────────────────
   yield {
     batch: [], totalFound: 0, phase: "analyze",
