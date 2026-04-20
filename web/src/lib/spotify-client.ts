@@ -164,3 +164,28 @@ export async function addTracksToPlaylist(playlistId: string, trackUris: string[
     });
   }
 }
+
+/**
+ * Remove tracks from a playlist using URI-only deletion. [V2-E, H3]
+ *
+ * This removes ALL occurrences of each URI in the playlist (Spotify's default
+ * behaviour when no `positions` field is provided). This is simpler and safer
+ * than snapshot+positions deletion, and sufficient for SoundFox because we only
+ * ever add one copy of each track.
+ *
+ * Batched in groups of 100 (Spotify API limit per request).
+ */
+export async function removeTracksFromPlaylist(
+  playlistId: string,
+  trackUris: string[],
+): Promise<void> {
+  for (let i = 0; i < trackUris.length; i += 100) {
+    const batch = trackUris.slice(i, i + 100);
+    await spotifyFetch(`/playlists/${playlistId}/tracks`, {
+      method: "DELETE",
+      body: JSON.stringify({
+        tracks: batch.map((uri) => ({ uri })),
+      }),
+    });
+  }
+}

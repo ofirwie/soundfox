@@ -1,10 +1,15 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type PipelineResult, type ScoredTrack } from "@/lib/discovery-pipeline";
-import { saveAnalysis } from "@/lib/storage";
-import { getCurrentUser, createPlaylist, addTracksToPlaylist } from "@/lib/spotify-client";
+import { saveAnalysis, saveTargetPlaylist } from "@/lib/storage";
+import {
+  getCurrentUser, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist,
+  getUserPlaylists, getPlaylistTracks, type SpotifyPlaylist,
+} from "@/lib/spotify-client";
+import TrackRow, { type TrackStatus } from "./TrackRow";
+
+// ─── Props ────────────────────────────────────────────────────────────────────
 
 interface ResultsStepProps {
   result: PipelineResult;
@@ -12,21 +17,92 @@ interface ResultsStepProps {
   playlistId: string;
 }
 
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+type SortKey = "score" | "popularity" | "year" | "random";
+type DestinationMode = "new" | "existing";
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+
+const PAGE_SIZE = 50;
+const DEBOUNCE_MS = 300; // [V2-B]
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function releaseDateToYear(releaseDate: string | undefined): number {
+  return parseInt(releaseDate?.slice(0, 4) ?? "0", 10);
+}
+
+function sortTracks(tracks: ScoredTrack[], key: SortKey, randomSeed: number): ScoredTrack[] {
+  const copy = [...tracks];
+  switch (key) {
+    case "score":
+      return copy.sort((a, b) => b.score - a.score);
+    case "popularity":
+      return copy.sort((a, b) => b.track.popularity - a.track.popularity);
+    case "year":
+      return copy.sort((a, b) =>
+        releaseDateToYear(b.track.album.release_date) - releaseDateToYear(a.track.album.release_date),
+      );
+    case "random":
+      // Stable pseudo-random per randomSeed so re-renders don't reshuffle
+      return copy.sort((a, b) => {
+        const ha = (a.track.id.charCodeAt(0) + randomSeed) % 97;
+        const hb = (b.track.id.charCodeAt(0) + randomSeed) % 97;
+        return ha - hb;
+      });
+  }
+}
+
+// ─── Component ────────────────────────────────────────────────────────────────
+
 export default function ResultsStep({ result, playlistName, playlistId }: ResultsStepProps): React.ReactElement {
   const { results, tasteVector, coreGenres } = result;
 
-  // Checkboxes — all selected by default
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(results.map((r) => r.track.id)));
-  // Preview player
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  // ── Destination playlist ───────────────────────────────────────────────────
+  const [destMode, setDestMode] = useState<DestinationMode>("new");
+  const [targetPlaylistId, setTargetPlaylistId] = useState<string | null>(null);
+  const [targetPlaylistName, setTargetPlaylistName] = useState<string>(`Discover: ${playlistName}`);
+  const [playlistNameInput, setPlaylistNameInput] = useState<string>(`Discover: ${playlistName}`);
+  const [showNamePrompt, setShowNamePrompt] = useState(false);
+  const [nameConfirmed, setNameConfirmed] = useState(false);
+  // For "Add to existing" mode
+  const [userPlaylists, setUserPlaylists] = useState<SpotifyPlaylist[]>([]);
+  const [playlistsLoaded, setPlaylistsLoaded] = useState(false);
+
+  // ── Track state ────────────────────────────────────────────────────────────
+  // added: Set of track IDs that have been confirmed added to the target playlist
+  const [added, setAdded] = useState<Set<string>>(new Set());
+  // statuses: per-track API call status for optimistic UI
+  const [statuses, setStatuses] = useState<Map<string, TrackStatus>>(new Map());
+  // debounce timers per track [V2-B]
+  const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+
+  // ── Cleanup all debounce timers on unmount [H2] ───────────────────────────
+  useEffect(() => {
+    return () => {
+      for (const timer of debounceTimers.current.values()) {
+        clearTimeout(timer);
+      }
+    };
+  }, []);
+
+  // ── Pagination ─────────────────────────────────────────────────────────────
+  const [page, setPage] = useState(0);
+
+  // ── Sort & filter ──────────────────────────────────────────────────────────
+  const [sortKey, setSortKey] = useState<SortKey>("score");
+  const [randomSeed] = useState(() => Math.floor(Math.random() * 1000));
+  const [textFilter, setTextFilter] = useState("");
+  const [genreFilter, setGenreFilter] = useState<string | null>(null);
+  const [followerMin, setFollowerMin] = useState<string>("");
+  const [followerMax, setFollowerMax] = useState<string>("");
+
+  // ── Audio preview ──────────────────────────────────────────────────────────
   const [playingId, setPlayingId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  // Playlist creation
-  const [creating, setCreating] = useState(false);
-  const [createdUrl, setCreatedUrl] = useState<string | null>(null);
-  const [createError, setCreateError] = useState<string | null>(null);
 
-  // [H5 FIX] Save analysis to localStorage on mount
+  // ── Save analysis to history on mount [H5] ─────────────────────────────────
   useEffect(() => {
     const meanVector: Record<string, number> = {};
     for (const [k, v] of Object.entries(tasteVector.mean)) {
@@ -43,96 +119,447 @@ export default function ResultsStep({ result, playlistName, playlistId }: Result
     });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  function toggleTrack(id: string): void {
-    setSelected((prev) => {
+  // ── Load user playlists when "existing" mode selected ─────────────────────
+  useEffect(() => {
+    if (destMode === "existing" && !playlistsLoaded) {
+      getUserPlaylists()
+        .then((pls) => { setUserPlaylists(pls); setPlaylistsLoaded(true); })
+        .catch(() => setPlaylistsLoaded(true));
+    }
+  }, [destMode, playlistsLoaded]);
+
+  // ── Pre-populate `added` set when an existing target playlist is chosen [H1] ──
+  // After the user picks an existing playlist, fetch its current tracks and mark
+  // any that overlap with our results as already-added. Prevents duplicates.
+  useEffect(() => {
+    if (destMode !== "existing" || !targetPlaylistId) return;
+    void (async () => {
+      try {
+        const existingTracks = await getPlaylistTracks(targetPlaylistId);
+        const existingIds = new Set(existingTracks.map((t) => t.id));
+        setAdded((prev) => {
+          const next = new Set(prev);
+          for (const item of results) {
+            if (existingIds.has(item.track.id)) next.add(item.track.id);
+          }
+          return next;
+        });
+      } catch {
+        // Non-fatal — user can still add tracks, they may just see duplicates
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [targetPlaylistId, destMode]);
+
+  // ── Filtered & sorted track list ──────────────────────────────────────────
+  const filteredSorted = useMemo(() => {
+    const fMin = followerMin ? parseInt(followerMin, 10) : 0;
+    const fMax = followerMax ? parseInt(followerMax, 10) : Infinity;
+    const text = textFilter.toLowerCase().trim();
+
+    const filtered = results.filter((item) => {
+      if (text && !item.track.name.toLowerCase().includes(text) && !item.artist.name.toLowerCase().includes(text)) {
+        return false;
+      }
+      if (genreFilter && !item.artist.genres.includes(genreFilter)) return false;
+      const followers = item.artist.followers.total;
+      if (followers < fMin || followers > fMax) return false;
+      return true;
+    });
+
+    return sortTracks(filtered, sortKey, randomSeed);
+  }, [results, textFilter, genreFilter, followerMin, followerMax, sortKey, randomSeed]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSorted.length / PAGE_SIZE));
+  const pageItems = filteredSorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+
+  // Reset to page 0 when filter changes
+  useEffect(() => { setPage(0); }, [textFilter, genreFilter, followerMin, followerMax, sortKey]);
+
+  // ── Genre chip list (top 20 from results for filter bar) ─────────────────
+  const allGenres = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const item of results) {
+      for (const g of item.matchedGenres) {
+        counts.set(g, (counts.get(g) ?? 0) + 1);
+      }
+    }
+    return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20).map(([g]) => g);
+  }, [results]);
+
+  // ── Create / resolve target playlist ─────────────────────────────────────
+  // Wrapped in useCallback so the function reference is stable across renders.
+  // handleToggle depends on ensureTargetPlaylist — if ensureTargetPlaylist is
+  // recreated on every render, handleToggle would also be recreated, defeating
+  // React.memo on TrackRow. [V2-C]
+
+  const ensureTargetPlaylist = useCallback(async (): Promise<string> => {
+    if (targetPlaylistId) return targetPlaylistId;
+
+    if (destMode === "new") {
+      const user = await getCurrentUser();
+      const newPl = await createPlaylist(
+        user.id,
+        targetPlaylistName,
+        `Discovered by SoundFox — matching ${playlistName}`,
+      );
+      setTargetPlaylistId(newPl.id);
+      saveTargetPlaylist(newPl.id, targetPlaylistName);
+      return newPl.id;
+    }
+
+    throw new Error("No target playlist selected");
+  }, [destMode, targetPlaylistId, targetPlaylistName, playlistName]);
+
+  // ── Debounced toggle handler [V2-B] ───────────────────────────────────────
+
+  const handleToggle = useCallback((trackId: string, currentlyAdded: boolean): void => {
+    // Cancel any pending debounce for this track
+    const existingTimer = debounceTimers.current.get(trackId);
+    if (existingTimer) clearTimeout(existingTimer);
+
+    // If we have no playlist name yet (new mode, first check), show the prompt.
+    // No debounce timer is started until nameConfirmed=true — serializes the flow [H2]
+    if (destMode === "new" && !nameConfirmed) {
+      setShowNamePrompt(true);
+      return;
+    }
+
+    // Optimistic UI: flip the added state immediately
+    setAdded((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (currentlyAdded) next.delete(trackId);
+      else next.add(trackId);
       return next;
     });
-  }
 
-  function toggleAll(): void {
-    if (selected.size === results.length) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(results.map((r) => r.track.id)));
-    }
-  }
+    setStatuses((prev) => {
+      const next = new Map(prev);
+      next.set(trackId, currentlyAdded ? "removing" : "adding");
+      return next;
+    });
+
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const plId = await ensureTargetPlaylist();
+          if (currentlyAdded) {
+            await removeTracksFromPlaylist(plId, [`spotify:track:${trackId}`]);
+          } else {
+            await addTracksToPlaylist(plId, [`spotify:track:${trackId}`]);
+          }
+          setStatuses((prev) => {
+            const next = new Map(prev);
+            next.set(trackId, currentlyAdded ? "idle" : "added");
+            return next;
+          });
+        } catch {
+          // Roll back optimistic update on failure
+          setAdded((prev) => {
+            const next = new Set(prev);
+            if (currentlyAdded) next.add(trackId); // restore added
+            else next.delete(trackId); // restore not-added
+            return next;
+          });
+          setStatuses((prev) => {
+            const next = new Map(prev);
+            next.set(trackId, "idle");
+            return next;
+          });
+        }
+      })();
+    }, DEBOUNCE_MS);
+
+    debounceTimers.current.set(trackId, timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destMode, nameConfirmed, ensureTargetPlaylist]);
+
+  // ── Audio preview ─────────────────────────────────────────────────────────
 
   function handlePreview(track: ScoredTrack["track"]): void {
     if (playingId === track.id) {
-      // Stop
       audioRef.current?.pause();
       setPlayingId(null);
-      setPreviewUrl(null);
       return;
     }
     if (!track.preview_url) return;
     audioRef.current?.pause();
-    setPreviewUrl(track.preview_url);
+    if (audioRef.current) {
+      audioRef.current.src = track.preview_url;
+      audioRef.current.play().catch(() => { /* autoplay blocked */ });
+    }
     setPlayingId(track.id);
   }
 
-  // Auto-play when previewUrl changes
-  useEffect(() => {
-    if (previewUrl && audioRef.current) {
-      audioRef.current.src = previewUrl;
-      audioRef.current.play().catch(() => {
-        // Autoplay blocked — user must click again
-      });
-    }
-  }, [previewUrl]);
+  // ── Persistent badge count ────────────────────────────────────────────────
+  const addedCount = added.size;
 
-  async function handleCreatePlaylist(): Promise<void> {
-    setCreating(true);
-    setCreateError(null);
-    try {
-      const user = await getCurrentUser();
-      const selectedTracks = results.filter((r) => selected.has(r.track.id));
-      const newPlaylist = await createPlaylist(
-        user.id,
-        `SoundFox: ${playlistName}`,
-        `Discovered by SoundFox — ${selectedTracks.length} tracks matching your taste profile`,
-      );
-      await addTracksToPlaylist(
-        newPlaylist.id,
-        selectedTracks.map((r) => `spotify:track:${r.track.id}`),
-      );
-      setCreatedUrl(`https://open.spotify.com/playlist/${newPlaylist.id}`);
-    } catch (err: unknown) {
-      setCreateError(err instanceof Error ? err.message : "Failed to create playlist");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  const selectedCount = selected.size;
-  const topGenres = coreGenres.slice(0, 6);
+  // ─── Render ───────────────────────────────────────────────────────────────
 
   return (
-    <div className="space-y-6">
-      {/* Hidden audio element */}
-      <audio
-        ref={audioRef}
-        onEnded={() => setPlayingId(null)}
-        className="hidden"
-      />
+    <div className="space-y-4">
+      <audio ref={audioRef} onEnded={() => setPlayingId(null)} className="hidden" />
 
       {/* Header */}
       <div>
-        <h2 className="text-3xl font-bold mb-2">Your Recommendations</h2>
-        <p className="text-[var(--text-secondary)]">
-          Found {results.length} tracks matching your taste profile from{" "}
+        <h2 className="text-3xl font-bold mb-1">Your Recommendations</h2>
+        <p className="text-[var(--text-secondary)] text-sm">
+          Found {results.length} tracks matching the audio DNA of{" "}
           <span className="text-white font-medium">{playlistName}</span>
         </p>
       </div>
 
-      {/* Taste summary — dynamic genres [C3 FIX] */}
+      {/* Persistent badge [Feature 3 — badge] */}
+      {addedCount > 0 && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-green-950/30 border border-green-800 rounded-xl text-green-400 text-sm font-medium">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} className="w-4 h-4 flex-shrink-0">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+          {addedCount} {addedCount === 1 ? "track" : "tracks"} added to{" "}
+          <span className="font-semibold">{targetPlaylistName}</span>
+          {targetPlaylistId && (
+            <a
+              href={`https://open.spotify.com/playlist/${targetPlaylistId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-auto text-green-400 hover:text-green-300 transition-colors text-xs underline"
+            >
+              Open in Spotify
+            </a>
+          )}
+        </div>
+      )}
+
+      {/* Destination toggle [Feature 3 — destination] */}
+      <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4 space-y-3">
+        <p className="text-sm font-semibold text-[var(--text-secondary)]">Add tracks to:</p>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setDestMode("new")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              destMode === "new"
+                ? "bg-[var(--accent)] text-black"
+                : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-white"
+            }`}
+          >
+            New playlist
+          </button>
+          <button
+            onClick={() => setDestMode("existing")}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              destMode === "existing"
+                ? "bg-[var(--accent)] text-black"
+                : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-white"
+            }`}
+          >
+            Add to: {destMode === "existing" && targetPlaylistId
+              ? targetPlaylistName
+              : "existing playlist"}
+          </button>
+        </div>
+
+        {destMode === "existing" && (
+          <div className="mt-2">
+            {!playlistsLoaded ? (
+              <p className="text-[var(--text-secondary)] text-xs">Loading your playlists...</p>
+            ) : (
+              <select
+                className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg
+                           text-sm text-white focus:outline-none focus:border-[var(--accent)]"
+                value={targetPlaylistId ?? ""}
+                onChange={(e) => {
+                  const pl = userPlaylists.find((p) => p.id === e.target.value);
+                  if (pl) {
+                    setTargetPlaylistId(pl.id);
+                    setTargetPlaylistName(pl.name);
+                    saveTargetPlaylist(pl.id, pl.name);
+                    setNameConfirmed(true);
+                  }
+                }}
+              >
+                <option value="">— Select a playlist —</option>
+                {userPlaylists.map((pl) => (
+                  <option key={pl.id} value={pl.id}>{pl.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Playlist name prompt — appears on first checkbox in "new" mode */}
+      {showNamePrompt && (
+        <div className="bg-[var(--bg-card)] border border-[var(--accent)]/40 rounded-xl p-4 space-y-3">
+          <p className="text-sm font-semibold">Name your new playlist</p>
+          <input
+            type="text"
+            value={playlistNameInput}
+            onChange={(e) => setPlaylistNameInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && playlistNameInput.trim()) {
+                setTargetPlaylistName(playlistNameInput.trim());
+                setNameConfirmed(true);
+                setShowNamePrompt(false);
+              }
+            }}
+            className="w-full px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg
+                       text-sm focus:outline-none focus:border-[var(--accent)]"
+            autoFocus
+          />
+          <button
+            onClick={() => {
+              if (playlistNameInput.trim()) {
+                setTargetPlaylistName(playlistNameInput.trim());
+                setNameConfirmed(true);
+                setShowNamePrompt(false);
+              }
+            }}
+            disabled={!playlistNameInput.trim()}
+            className="w-full py-2 bg-[var(--accent)] rounded-lg text-sm font-semibold disabled:opacity-50"
+          >
+            Confirm name
+          </button>
+        </div>
+      )}
+
+      {/* Sort + Filter bar [Feature 3 — sort/filter] */}
+      <div className="space-y-2">
+        <div className="flex gap-2 items-center flex-wrap">
+          <input
+            type="text"
+            value={textFilter}
+            onChange={(e) => setTextFilter(e.target.value)}
+            placeholder="Search tracks or artists..."
+            className="flex-1 min-w-0 px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg
+                       text-sm focus:outline-none focus:border-[var(--accent)] placeholder-gray-600"
+          />
+          <select
+            value={sortKey}
+            onChange={(e) => setSortKey(e.target.value as SortKey)}
+            className="px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border)] rounded-lg
+                       text-sm text-white focus:outline-none focus:border-[var(--accent)]"
+          >
+            <option value="score">Sort: Match score</option>
+            <option value="popularity">Sort: Popularity</option>
+            <option value="year">Sort: Year (newest)</option>
+            <option value="random">Sort: Random</option>
+          </select>
+        </div>
+
+        {/* Genre filter chips */}
+        {allGenres.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            <button
+              onClick={() => setGenreFilter(null)}
+              className={`px-2.5 py-1 rounded-full text-xs transition-colors ${
+                genreFilter === null
+                  ? "bg-[var(--accent)] text-black font-medium"
+                  : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-white"
+              }`}
+            >
+              All genres
+            </button>
+            {allGenres.map((g) => (
+              <button
+                key={g}
+                onClick={() => setGenreFilter(genreFilter === g ? null : g)}
+                className={`px-2.5 py-1 rounded-full text-xs capitalize transition-colors ${
+                  genreFilter === g
+                    ? "bg-[var(--accent)] text-black font-medium"
+                    : "bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-white"
+                }`}
+              >
+                {g}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Follower range filter */}
+        <div className="flex gap-2 items-center text-xs text-[var(--text-secondary)]">
+          <span>Followers:</span>
+          <input
+            type="number"
+            value={followerMin}
+            onChange={(e) => setFollowerMin(e.target.value)}
+            placeholder="Min"
+            className="w-24 px-2 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded text-white
+                       focus:outline-none focus:border-[var(--accent)]"
+          />
+          <span>–</span>
+          <input
+            type="number"
+            value={followerMax}
+            onChange={(e) => setFollowerMax(e.target.value)}
+            placeholder="Max"
+            className="w-24 px-2 py-1 bg-[var(--bg-secondary)] border border-[var(--border)] rounded text-white
+                       focus:outline-none focus:border-[var(--accent)]"
+          />
+        </div>
+      </div>
+
+      {/* Track list with pagination [Feature 3 — pagination] */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between text-sm text-[var(--text-secondary)]">
+          <span>
+            {filteredSorted.length} tracks
+            {genreFilter || textFilter ? " (filtered)" : ""}
+          </span>
+          <span>Page {page + 1} of {totalPages}</span>
+        </div>
+
+        {/* [V2-D] CSS containment for windowing-like performance */}
+        <div
+          className="space-y-2 max-h-[55vh] overflow-y-auto pr-1"
+          style={{ contain: "content" }}
+        >
+          {pageItems.map((item, idx) => (
+            <TrackRow
+              key={item.track.id}
+              item={item}
+              index={page * PAGE_SIZE + idx}
+              isAdded={added.has(item.track.id)}
+              status={statuses.get(item.track.id) ?? "idle"}
+              isPlaying={playingId === item.track.id}
+              onToggle={handleToggle}
+              onPreview={handlePreview}
+            />
+          ))}
+        </div>
+
+        {/* Pagination controls */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => setPage((p) => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="px-3 py-1.5 rounded-lg text-sm bg-[var(--bg-secondary)] disabled:opacity-40
+                         hover:bg-[var(--bg-card)] transition-colors"
+            >
+              Previous
+            </button>
+            <span className="text-sm text-[var(--text-secondary)]">
+              {page + 1} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+              disabled={page === totalPages - 1}
+              className="px-3 py-1.5 rounded-lg text-sm bg-[var(--bg-secondary)] disabled:opacity-40
+                         hover:bg-[var(--bg-card)] transition-colors"
+            >
+              Next
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Taste profile summary */}
       <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-4">
-        <p className="text-sm font-semibold text-[var(--text-secondary)] mb-2">Your Taste Profile</p>
-        <div className="flex flex-wrap gap-2">
-          {topGenres.map((genre) => (
+        <p className="text-xs font-semibold text-[var(--text-secondary)] mb-2 uppercase tracking-wide">
+          Taste Profile
+        </p>
+        <div className="flex flex-wrap gap-2 mb-3">
+          {coreGenres.slice(0, 6).map((genre) => (
             <span
               key={genre}
               className="px-3 py-1 bg-[var(--accent)]/10 border border-[var(--accent)]/30
@@ -142,7 +569,7 @@ export default function ResultsStep({ result, playlistName, playlistId }: Result
             </span>
           ))}
         </div>
-        <div className="mt-3 grid grid-cols-3 gap-3 text-center text-xs">
+        <div className="grid grid-cols-3 gap-3 text-center text-xs">
           <div>
             <p className="text-[var(--text-secondary)]">Analyzed</p>
             <p className="text-white font-semibold">{result.tracksAnalyzed} tracks</p>
@@ -156,147 +583,6 @@ export default function ResultsStep({ result, playlistName, playlistId }: Result
             <p className="text-white font-semibold">{result.scored}</p>
           </div>
         </div>
-      </div>
-
-      {/* Track list */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-[var(--text-secondary)]">{selectedCount} of {results.length} selected</p>
-          <button onClick={toggleAll} className="text-sm text-[var(--accent)] hover:underline">
-            {selectedCount === results.length ? "Deselect all" : "Select all"}
-          </button>
-        </div>
-
-        <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-          {results.map((item, index) => {
-            const isSelected = selected.has(item.track.id);
-            const isPlaying = playingId === item.track.id;
-            const hasPreview = !!item.track.preview_url;
-            const albumImage = item.track.album.images[0]?.url;
-            const scorePercent = Math.round(item.score * 100);
-
-            return (
-              <div
-                key={item.track.id}
-                className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
-                  isSelected
-                    ? "bg-[var(--bg-card)] border-[var(--accent)]/30"
-                    : "bg-[var(--bg-secondary)] border-[var(--border)] opacity-60"
-                }`}
-              >
-                {/* Rank */}
-                <span className="text-[var(--text-secondary)] text-sm w-6 text-center flex-shrink-0">
-                  {index + 1}
-                </span>
-
-                {/* Album art */}
-                <div className="w-10 h-10 flex-shrink-0 rounded overflow-hidden bg-[var(--bg-secondary)]">
-                  {albumImage ? (
-                    <Image src={albumImage} alt="" width={40} height={40} className="object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-[var(--text-secondary)] text-xs">
-                      &#9834;
-                    </div>
-                  )}
-                </div>
-
-                {/* Track info */}
-                <div className="flex-1 min-w-0">
-                  <p className="text-white text-sm font-medium truncate">{item.track.name}</p>
-                  <p className="text-[var(--text-secondary)] text-xs truncate">{item.artist.name}</p>
-                  {item.matchedGenres.length > 0 && (
-                    <p className="text-[var(--accent)] text-xs truncate mt-0.5">
-                      {item.matchedGenres.slice(0, 2).join(", ")}
-                    </p>
-                  )}
-                </div>
-
-                {/* Score badge */}
-                <div className="flex-shrink-0 text-center w-12">
-                  <p className="text-[var(--accent)] font-bold text-sm">{scorePercent}%</p>
-                  <p className="text-[var(--text-secondary)] text-xs">match</p>
-                </div>
-
-                {/* Preview button */}
-                <button
-                  onClick={() => handlePreview(item.track)}
-                  disabled={!hasPreview}
-                  className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center transition-colors ${
-                    hasPreview
-                      ? isPlaying
-                        ? "bg-[var(--accent)] text-black"
-                        : "bg-[var(--bg-secondary)] hover:bg-[var(--accent)]/20 text-[var(--text-secondary)]"
-                      : "opacity-20 cursor-not-allowed bg-[var(--bg-secondary)] text-[var(--text-secondary)]"
-                  }`}
-                  title={hasPreview ? (isPlaying ? "Stop preview" : "Play 30s preview") : "No preview available"}
-                >
-                  {isPlaying ? (
-                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3">
-                      <rect x="6" y="4" width="4" height="16" />
-                      <rect x="14" y="4" width="4" height="16" />
-                    </svg>
-                  ) : (
-                    <svg viewBox="0 0 24 24" fill="currentColor" className="w-3 h-3 ml-0.5">
-                      <path d="M8 5v14l11-7z" />
-                    </svg>
-                  )}
-                </button>
-
-                {/* Checkbox */}
-                <button
-                  onClick={() => toggleTrack(item.track.id)}
-                  className={`flex-shrink-0 w-5 h-5 rounded border-2 transition-colors flex items-center justify-center ${
-                    isSelected
-                      ? "bg-[var(--accent)] border-[var(--accent)]"
-                      : "border-[var(--border)] hover:border-[var(--accent)]/50"
-                  }`}
-                >
-                  {isSelected && (
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="w-3 h-3 text-black">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  )}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Create playlist CTA */}
-      <div className="space-y-3 pt-2">
-        {createdUrl ? (
-          <div className="bg-green-950/30 border border-green-800 rounded-xl p-4 text-center space-y-2">
-            <p className="text-green-400 font-semibold">Playlist created!</p>
-            <a
-              href={createdUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block px-6 py-2 bg-[#1DB954] hover:bg-[#1aa34a] rounded-full font-semibold text-sm transition-colors"
-            >
-              Open in Spotify
-            </a>
-          </div>
-        ) : (
-          <>
-            {createError && (
-              <p className="text-red-400 text-sm text-center">{createError}</p>
-            )}
-            <button
-              onClick={() => void handleCreatePlaylist()}
-              disabled={creating || selectedCount === 0}
-              className={`w-full py-3 rounded-lg font-semibold transition-colors ${
-                creating || selectedCount === 0
-                  ? "bg-[var(--bg-secondary)] text-[var(--text-secondary)] cursor-not-allowed"
-                  : "bg-[var(--accent)] hover:bg-[var(--accent-hover)]"
-              }`}
-            >
-              {creating
-                ? "Creating playlist..."
-                : `Create Playlist (${selectedCount} tracks)`}
-            </button>
-          </>
-        )}
       </div>
     </div>
   );

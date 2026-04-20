@@ -1,11 +1,19 @@
 "use client";
 
-import { useEffect, useRef, useState, useCallback } from "react";
-import { runPipeline, type PipelineProgress, type PipelineResult } from "@/lib/discovery-pipeline";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  runPipelineStreaming,
+  type BatchUpdate,
+  type PipelineResult,
+  type ScanOptions,
+  type ScoredTrack,
+} from "@/lib/discovery-pipeline";
+import { saveScanState, clearScanState } from "@/lib/storage";
 import { type SpotifyPlaylist } from "@/lib/spotify-client";
 
 interface AnalysisStepProps {
   playlist: SpotifyPlaylist;
+  scanOptions: ScanOptions;
   onComplete: (result: PipelineResult) => void;
 }
 
@@ -22,50 +30,130 @@ const PHASES: PhaseConfig[] = [
   { key: "done", label: "Complete", icon: "v" },
 ];
 
-export default function AnalysisStep({ playlist, onComplete }: AnalysisStepProps): React.ReactElement {
-  const [progress, setProgress] = useState<PipelineProgress>({
-    phase: "analyze",
-    message: "Starting...",
-    percent: 0,
+export default function AnalysisStep({
+  playlist,
+  scanOptions,
+  onComplete,
+}: AnalysisStepProps): React.ReactElement {
+  const [progress, setProgress] = useState<BatchUpdate>({
+    batch: [], totalFound: 0, phase: "analyze",
+    message: "Starting...", percent: 0, done: false,
   });
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
-  const abortRef = useRef(false);
+  const [stopped, setStopped] = useState(false);
 
+  // Accumulated scored tracks — used to build PipelineResult on completion/stop
+  const accumulatedRef = useRef<ScoredTrack[]>([]);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  // [C1] Store the DoneUpdate from the generator — it carries all metadata directly
+  const doneUpdateRef = useRef<Extract<BatchUpdate, { done: true }> | null>(null);
+
+  const buildPartialResult = useCallback((): PipelineResult => {
+    const sorted = [...accumulatedRef.current].sort((a, b) => b.score - a.score);
+    const done = doneUpdateRef.current;
+    return {
+      tasteVector: done?.tasteVector ?? { mean: {}, std: {}, minVal: {}, maxVal: {}, sampleCount: 0 },
+      coreGenres: done?.coreGenres ?? [],
+      tracksAnalyzed: done?.tracksAnalyzed ?? 0,
+      tracksWithFeatures: done?.tracksWithFeatures ?? 0,
+      candidateArtists: done?.candidateArtists ?? 0,
+      genrePassed: done?.genrePassed ?? 0,
+      candidateTracks: sorted.length,
+      scored: sorted.length,
+      results: sorted,
+    };
+  }, []);
+
+  // H5: scanOptions must be stable to prevent start() from re-triggering on every render.
+  // In wizard/page.tsx, scanOptions state must be set once (from handleScanOptionsConfirmed)
+  // and never mutated in-place. If it is rebuilt on every render, wrap it in useMemo or
+  // store it in a ref before passing to AnalysisStep.
   const start = useCallback((): void => {
-    abortRef.current = false;
+    accumulatedRef.current = [];
+    doneUpdateRef.current = null;
     setError(null);
     setRunning(true);
-    setProgress({ phase: "analyze", message: "Starting...", percent: 0 });
+    setStopped(false);
+    setProgress({ batch: [], totalFound: 0, phase: "analyze", message: "Starting...", percent: 0, done: false });
 
-    runPipeline(playlist.id, (p) => {
-      if (!abortRef.current) setProgress(p);
-    })
-      .then((result) => {
-        if (!abortRef.current) {
-          setRunning(false);
-          onComplete(result);
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    void (async () => {
+      try {
+        const gen = runPipelineStreaming(playlist.id, {
+          ...scanOptions,
+          signal: controller.signal,
+        });
+
+        for await (const update of gen) {
+          if (controller.signal.aborted) break;
+
+          setProgress(update);
+
+          if (update.done) {
+            // [C1] Capture DoneUpdate for metadata — buildPartialResult reads it
+            doneUpdateRef.current = update;
+          }
+
+          if (update.batch.length > 0) {
+            accumulatedRef.current.push(...update.batch);
+
+            // Save scan state every batch [V2-F]
+            saveScanState({
+              sourcePlaylistId: playlist.id,
+              sourcePlaylistName: playlist.name,
+              scanOptions,
+              allResults: accumulatedRef.current,
+              targetPlaylistId: null,
+              targetPlaylistName: null,
+              savedAt: new Date().toISOString(),
+            });
+          }
+
+          if (update.done) break;
         }
-      })
-      .catch((err: unknown) => {
-        if (!abortRef.current) {
+
+        // Done or aborted — transition to results
+        clearScanState();
+        setRunning(false);
+        onComplete(buildPartialResult());
+      } catch (err: unknown) {
+        if ((err as Error).name === "AbortError") {
+          // User clicked Stop — show results with what we have
+          clearScanState();
+          setRunning(false);
+          setStopped(true);
+          if (accumulatedRef.current.length > 0) {
+            onComplete(buildPartialResult());
+          } else {
+            setError("Scan stopped before any tracks were found. Try again.");
+          }
+        } else {
+          clearScanState();
           setRunning(false);
           setError(err instanceof Error ? err.message : "An unexpected error occurred");
         }
-      });
-  }, [playlist.id, onComplete]);
+      }
+    })();
+  }, [playlist.id, playlist.name, scanOptions, onComplete, buildPartialResult]);
 
   // Auto-start on mount
   useEffect(() => {
     start();
     return () => {
-      abortRef.current = true;
+      abortControllerRef.current?.abort();
     };
   }, [start]);
 
+  function handleStop(): void {
+    abortControllerRef.current?.abort();
+  }
+
   const currentPhaseIndex = PHASES.findIndex((p) => p.key === progress.phase);
 
-  // [H3 FIX] Error state with retry button
+  // Error state with retry
   if (error) {
     return (
       <div className="space-y-6 text-center">
@@ -91,12 +179,20 @@ export default function AnalysisStep({ playlist, onComplete }: AnalysisStepProps
   return (
     <div className="space-y-8">
       <div>
-        <h2 className="text-3xl font-bold mb-2">Analyzing Playlist</h2>
+        <h2 className="text-3xl font-bold mb-2">Scanning...</h2>
         <p className="text-[var(--text-secondary)]">
           Finding music that matches the audio DNA of{" "}
           <span className="text-white font-medium">{playlist.name}</span>
         </p>
       </div>
+
+      {/* Live count badge */}
+      {progress.totalFound > 0 && (
+        <div className="inline-flex items-center gap-2 px-4 py-2 bg-[var(--accent)]/10 border border-[var(--accent)]/30 rounded-full text-sm font-medium text-[var(--accent)]">
+          <span className="inline-block w-2 h-2 bg-[var(--accent)] rounded-full animate-pulse" />
+          {progress.totalFound} tracks found so far
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="space-y-2">
@@ -146,11 +242,26 @@ export default function AnalysisStep({ playlist, onComplete }: AnalysisStepProps
         })}
       </div>
 
+      {/* Controls */}
+      <div className="flex gap-3">
+        {running && (
+          <button
+            onClick={handleStop}
+            className="flex-1 py-3 border border-red-800 text-red-400 hover:bg-red-950/30 rounded-lg font-semibold transition-colors text-sm"
+          >
+            Stop scanning — show results so far ({progress.totalFound} tracks)
+          </button>
+        )}
+      </div>
+
       {running && (
         <p className="text-center text-[var(--text-secondary)] text-sm">
-          This takes 2-5 minutes depending on playlist size. Please keep the tab open.
+          Results will appear as tracks are found. Close tab? Your progress is auto-saved.
         </p>
       )}
+
+      {/* Suppress unused variable warning — stopped is used for future UI gate */}
+      {stopped && false && null}
     </div>
   );
 }
