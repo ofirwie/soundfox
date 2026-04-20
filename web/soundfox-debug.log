@@ -1,0 +1,18 @@
+[2026-04-20T20:59:35.986Z] {"phase":"BEFORE_getPlaylistTracksDetailed","playlistId":"isa"}
+[2026-04-20T20:59:36.000Z] {"phase":"BEFORE_getPlaylistTracksDetailed","playlistId":"isa"}
+[2026-04-20T20:59:36.083Z] {"phase":"AFTER_getPlaylistTracksDetailed","rawItemCount":100,"tracksCount":100}
+[2026-04-20T20:59:36.105Z] {"phase":"tracks_loaded","playlistId":"isa","rawItemCount":100,"usableTracks":100,"localFileCount":0,"unavailableCount":0,"episodeCount":0,"sampleTrackNames":["Real Track 1","Real Track 2","Real Track 3"],"sampleArtists":["Artist 1","Artist 2","Artist 3"]}
+[2026-04-20T20:59:36.136Z] {"phase":"AFTER_tracks_loaded_log"}
+[2026-04-20T20:59:36.157Z] {"phase":"BEFORE_buildGenreProfile"}
+[2026-04-20T20:59:36.229Z] {"phase":"genre_profile","coreGenresCount":3,"coreGenres":["rock","alternative rock","post-grunge"],"searchTermsCount":3,"searchTerms":["alternative rock","post-grunge","rock"],"allArtistIdsCount":20}
+[2026-04-20T20:59:36.243Z] {"phase":"AFTER_getPlaylistTracksDetailed","rawItemCount":100,"tracksCount":100}
+[2026-04-20T20:59:36.263Z] {"phase":"tracks_loaded","playlistId":"isa","rawItemCount":100,"usableTracks":100,"localFileCount":0,"unavailableCount":0,"episodeCount":0,"sampleTrackNames":["Real Track 1","Real Track 2","Real Track 3"],"sampleArtists":["Artist 1","Artist 2","Artist 3"]}
+[2026-04-20T20:59:36.282Z] {"phase":"AFTER_tracks_loaded_log"}
+[2026-04-20T20:59:36.303Z] {"phase":"BEFORE_buildGenreProfile"}
+[2026-04-20T20:59:36.434Z] {"phase":"genre_profile","coreGenresCount":3,"coreGenres":["rock","alternative rock","post-grunge"],"searchTermsCount":3,"searchTerms":["alternative rock","post-grunge","rock"],"allArtistIdsCount":20}
+[2026-04-20T20:59:40.276Z] {"phase":"audio_features","requestedTrackIds":100,"receivedFeatures":50,"coverage":"50%","tasteSampleCount":50,"tasteMean":{"acousticness":0.30000000000000027,"danceability":0.5,"energy":0.6999999999999998,"instrumentalness":0.09999999999999996,"liveness":0.19999999999999993,"loudness":-7,"speechiness":0.04999999999999998,"tempo":120,"valence":0.5}}
+[2026-04-20T20:59:40.288Z] {"phase":"BEFORE_search_phase","searchTermsCount":3,"searchTerms":["alternative rock","post-grunge","rock"]}
+[2026-04-20T20:59:40.496Z] {"phase":"audio_features","requestedTrackIds":100,"receivedFeatures":50,"coverage":"50%","tasteSampleCount":50,"tasteMean":{"acousticness":0.30000000000000027,"danceability":0.5,"energy":0.6999999999999998,"instrumentalness":0.09999999999999996,"liveness":0.19999999999999993,"loudness":-7,"speechiness":0.04999999999999998,"tempo":120,"valence":0.5}}
+[2026-04-20T20:59:40.518Z] {"phase":"BEFORE_search_phase","searchTermsCount":3,"searchTerms":["alternative rock","post-grunge","rock"]}
+[2026-04-20T20:59:52.394Z] {"phase":"AFTER_genre_gate","candidateArtists":60,"genrePassed":60}
+[2026-04-20T20:59:52.801Z] {"phase":"AFTER_genre_gate","candidateArtists":60,"genrePassed":60}

@@ -121,8 +121,18 @@ export default function AnalysisStep({
         setRunning(false);
         onComplete(buildPartialResult());
       } catch (err: unknown) {
+        // Always log errors to debug file
+        void fetch("/api/log", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            phase: "PIPELINE_CAUGHT_ERROR",
+            errorName: (err as Error)?.name,
+            errorMessage: (err as Error)?.message,
+            stack: (err as Error)?.stack?.slice(0, 500),
+          }),
+        });
         if ((err as Error).name === "AbortError") {
-          // User clicked Stop — show results with what we have
           clearScanState();
           setRunning(false);
           setStopped(true);
@@ -140,12 +150,15 @@ export default function AnalysisStep({
     })();
   }, [playlist.id, playlist.name, scanOptions, onComplete, buildPartialResult]);
 
-  // Auto-start on mount
+  // Auto-start on mount.
+  // CRITICAL: do NOT abort on cleanup. React Strict Mode (dev) double-mounts
+  // components, and the cleanup fires AFTER the second mount has already
+  // replaced abortControllerRef.current with the new pipeline's controller.
+  // Aborting here would kill the second pipeline instead of the first.
+  // The first pipeline's results are simply discarded — handleStop() is the
+  // only legitimate abort path.
   useEffect(() => {
     start();
-    return () => {
-      abortControllerRef.current?.abort();
-    };
   }, [start]);
 
   function handleStop(): void {

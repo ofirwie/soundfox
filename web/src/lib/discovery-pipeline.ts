@@ -1,9 +1,23 @@
 import { getAudioFeaturesBatch, type AudioFeatures } from "./reccobeats";
 import { buildTasteVector, scoreCandidate, type TasteVector } from "./taste-engine";
 import {
-  getPlaylistTracks, getArtists, searchArtists, getArtistTopTracks,
+  getPlaylistTracksDetailed, getArtists, searchArtists, getArtistTopTracks,
   type SpotifyTrack, type SpotifyArtist,
 } from "./spotify-client";
+
+// ─── Debug logging — writes to soundfox-debug.log on the dev server ──────────
+
+async function debugLog(data: unknown): Promise<void> {
+  try {
+    await fetch("/api/log", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  } catch {
+    // Ignore — logging must never break the pipeline
+  }
+}
 
 // ─── Public interfaces ────────────────────────────────────────────────────────
 
@@ -206,15 +220,38 @@ export async function* runPipelineStreaming(
   };
   checkAbort(signal);
 
-  const tracks = await getPlaylistTracks(playlistId);
+  await debugLog({ phase: "BEFORE_getPlaylistTracksDetailed", playlistId });
+  const detail = await getPlaylistTracksDetailed(playlistId);
+  await debugLog({ phase: "AFTER_getPlaylistTracksDetailed", rawItemCount: detail.rawItemCount, tracksCount: detail.tracks.length });
   checkAbort(signal);
 
+  const tracks = detail.tracks;
   const trackIds = tracks.map((t) => t.id).filter(Boolean);
   const existingTrackIds = new Set(trackIds);
 
-  console.log(`[SoundFox] Loaded ${tracks.length} tracks (${trackIds.length} with IDs) from playlist ${playlistId}`);
-  if (trackIds.length === 0) {
-    console.warn(`[SoundFox] Playlist returned 0 tracks. Check Spotify: is the playlist truly empty? All tracks could be local files (excluded by API) or unavailable in your market.`);
+  await debugLog({
+    phase: "tracks_loaded",
+    playlistId,
+    rawItemCount: detail.rawItemCount,
+    usableTracks: tracks.length,
+    localFileCount: detail.localFileCount,
+    unavailableCount: detail.unavailableCount,
+    episodeCount: detail.episodeCount,
+    sampleTrackNames: tracks.slice(0, 3).map((t) => t.name),
+    sampleArtists: tracks.slice(0, 3).map((t) => t.artists?.[0]?.name),
+  });
+  await debugLog({ phase: "AFTER_tracks_loaded_log" });
+
+  // Throw a clear error if all tracks were filtered out — empty state reason
+  if (tracks.length === 0 && detail.rawItemCount > 0) {
+    const reasons = [];
+    if (detail.localFileCount > 0) reasons.push(`${detail.localFileCount} local files (uploaded MP3s — Spotify excludes from API)`);
+    if (detail.episodeCount > 0) reasons.push(`${detail.episodeCount} podcast episodes`);
+    if (detail.unavailableCount > 0) reasons.push(`${detail.unavailableCount} unavailable tracks`);
+    throw new Error(
+      `Playlist has ${detail.rawItemCount} items but none can be analyzed: ${reasons.join(", ")}. ` +
+      `SoundFox needs Spotify catalog tracks (not local files or episodes).`
+    );
   }
 
   // ── Phase 2: Build genre profile ─────────────────────────────────────────
@@ -227,6 +264,7 @@ export async function* runPipelineStreaming(
   // M7: forward buildGenreProfile progress messages via yield.
   // The callback can't yield directly, so we collect the last message in a ref
   // and re-emit it in yielded updates throughout Phase 2. [M7]
+  await debugLog({ phase: "BEFORE_buildGenreProfile" });
   let lastGenreMsg = "Analyzing genre DNA...";
   const { coreGenres, searchTerms, allArtistIds } = await buildGenreProfile(
     tracks,
@@ -234,6 +272,15 @@ export async function* runPipelineStreaming(
   );
   checkAbort(signal);
   const coreGenreSet = new Set(coreGenres);
+
+  await debugLog({
+    phase: "genre_profile",
+    coreGenresCount: coreGenres.length,
+    coreGenres: coreGenres.slice(0, 10),
+    searchTermsCount: searchTerms.length,
+    searchTerms,
+    allArtistIdsCount: allArtistIds.size,
+  });
 
   yield {
     batch: [], totalFound: 0, phase: "analyze",
@@ -255,11 +302,21 @@ export async function* runPipelineStreaming(
   checkAbort(signal);
   const tasteVector = buildTasteVector(features);
 
+  await debugLog({
+    phase: "audio_features",
+    requestedTrackIds: trackIds.length,
+    receivedFeatures: features.size,
+    coverage: trackIds.length > 0 ? `${Math.round((features.size / trackIds.length) * 100)}%` : "N/A",
+    tasteSampleCount: tasteVector.sampleCount,
+    tasteMean: tasteVector.mean,
+  });
+
   yield {
     batch: [], totalFound: 0, phase: "analyze",
     message: `Audio DNA ready — ${features.size} tracks with features`, percent: 18, done: false,
   };
 
+  await debugLog({ phase: "BEFORE_search_phase", searchTermsCount: searchTerms.length, searchTerms });
   // ── Phase 4: Search candidate artists (expanded for v2) ───────────────────
   const candidateArtists = new Map<string, SpotifyArtist>();
   const MIN_FOLLOWERS = 5_000;
@@ -318,6 +375,8 @@ export async function* runPipelineStreaming(
     if (genreLoopCount % 200 === 0) await yieldToEventLoop();
     checkAbort(signal);
   }
+
+  await debugLog({ phase: "AFTER_genre_gate", candidateArtists: candidateArtists.size, genrePassed: genrePassed.length });
 
   yield {
     batch: [], totalFound: 0, phase: "discover",

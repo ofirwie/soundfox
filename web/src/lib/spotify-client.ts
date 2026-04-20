@@ -109,17 +109,40 @@ export async function getUserPlaylists(): Promise<SpotifyPlaylist[]> {
   return playlists;
 }
 
-export async function getPlaylistTracks(playlistId: string): Promise<SpotifyTrack[]> {
+export interface PlaylistTracksDetail {
+  tracks: SpotifyTrack[];
+  rawItemCount: number;
+  localFileCount: number;
+  unavailableCount: number;
+  episodeCount: number;
+}
+
+export async function getPlaylistTracksDetailed(playlistId: string): Promise<PlaylistTracksDetail> {
   const tracks: SpotifyTrack[] = [];
+  let rawItemCount = 0;
+  let localFileCount = 0;
+  let unavailableCount = 0;
+  let episodeCount = 0;
   let url = `/playlists/${playlistId}/tracks?limit=100`;
   while (url) {
     const res = await spotifyFetch(url);
     const data = await res.json();
     for (const item of data.items) {
-      if (item.track?.id) tracks.push(item.track);
+      rawItemCount++;
+      if (item.is_local) { localFileCount++; continue; }
+      if (!item.track) { unavailableCount++; continue; }
+      if (item.track.type === "episode") { episodeCount++; continue; }
+      if (!item.track.id) { unavailableCount++; continue; }
+      tracks.push(item.track);
     }
     url = data.next ? data.next.replace(BASE, "") : "";
   }
+  return { tracks, rawItemCount, localFileCount, unavailableCount, episodeCount };
+}
+
+// Backward-compat wrapper
+export async function getPlaylistTracks(playlistId: string): Promise<SpotifyTrack[]> {
+  const { tracks } = await getPlaylistTracksDetailed(playlistId);
   return tracks;
 }
 
