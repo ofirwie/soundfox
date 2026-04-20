@@ -13,7 +13,7 @@ export default function Home(): ReactElement {
   useEffect(() => {
     // Returning user with valid auth → skip straight to app
     if (getClientId() && getAccessToken()) {
-      router.replace("/app");
+      router.replace("/go");
       return;
     }
     setChecking(false);

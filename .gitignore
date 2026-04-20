@@ -6,3 +6,4 @@ venv/
 .venv/
 web/node_modules/
 web/.next/
+web/test-*.png

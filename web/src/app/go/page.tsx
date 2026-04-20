@@ -11,28 +11,23 @@ import { getClientId, getAccessToken, loadScanState, loadLastScanOptions, saveLa
 import { getCurrentUser, type SpotifyUser, type SpotifyPlaylist } from "@/lib/spotify-client";
 import { type PipelineResult, type ScanOptions } from "@/lib/discovery-pipeline";
 
-type Mode = "home" | "analyze" | "results";
+type Mode = "loading" | "home" | "analyze" | "results";
 
-export default function AppPage(): ReactElement {
+export default function GoPage(): ReactElement {
   const router = useRouter();
-  const [ready, setReady] = useState(false);
+  const [mode, setMode] = useState<Mode>("loading");
   const [user, setUser] = useState<SpotifyUser | null>(null);
-  const [mode, setMode] = useState<Mode>("home");
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyPlaylist | null>(null);
   const [scanOptions, setScanOptions] = useState<ScanOptions>({});
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
 
-  // Gate: redirect to /wizard if setup incomplete
   useEffect(() => {
+    // Gate: redirect to /wizard if setup incomplete
     if (!getClientId() || !getAccessToken()) {
       router.replace("/wizard");
       return;
     }
 
-    // Show UI immediately
-    setReady(true);
-
-    // Check for resumable scan
     const saved = loadScanState();
     if (saved && saved.allResults.length > 0) {
       const sorted = [...saved.allResults].sort((a, b) => b.score - a.score);
@@ -51,13 +46,11 @@ export default function AppPage(): ReactElement {
       });
     }
 
-    // Load user info in background (don't block UI)
+    setMode("home");
+
     getCurrentUser()
       .then(setUser)
-      .catch(() => {
-        // Token invalid — kick back to wizard
-        router.replace("/wizard");
-      });
+      .catch(() => router.replace("/wizard"));
   }, [router]);
 
   const handlePlaylistSelect = useCallback((pl: SpotifyPlaylist) => {
@@ -73,14 +66,7 @@ export default function AppPage(): ReactElement {
     setMode("results");
   }, []);
 
-  if (!ready) {
-    return (
-      <main className="min-h-screen flex items-center justify-center">
-        <div className="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
-      </main>
-    );
-  }
-
+  // Single tree — always render the same structure, only content varies
   return (
     <main className="min-h-screen flex flex-col">
       <header className="border-b border-[var(--border)] px-8 py-4">
@@ -117,6 +103,12 @@ export default function AppPage(): ReactElement {
 
       <div className="flex-1 p-8">
         <div className="max-w-5xl mx-auto">
+          {mode === "loading" && (
+            <div className="flex items-center justify-center py-24">
+              <div className="w-8 h-8 border-2 border-[var(--accent)] border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+
           {mode === "home" && <PlaylistStep onSelect={handlePlaylistSelect} />}
 
           {mode === "analyze" && selectedPlaylist && (

@@ -37,3 +37,13 @@
 - Spotify API calls may hit rate limits in serverless/cold-start environments
 - Acknowledge cold-start reality when designing API features — don't assume persistent in-memory state
 - All Spotify API interactions happen client-side (no server state)
+
+## Dev Server Gotchas (Next 16)
+- **Cross-origin HMR blocked by default** — accessing app at `127.0.0.1` while Next defaults HMR to `localhost` causes "Blocked cross-origin request to /_next/webpack-hmr" warning. This silently **breaks client hydration** on dev (prod is fine).
+- **Fix:** Add `allowedDevOrigins: ["127.0.0.1", "localhost"]` to `next.config.ts`.
+- **Symptom:** SSR renders the page but client JS never hydrates. `useEffect` never runs. `console.log` never fires. Only SSR DOM is visible.
+- Production build (`npm run build && npm run start`) does NOT have this issue.
+
+## Playwright Verification Pattern
+- Use `test-full-flow.mjs` pattern: mock Spotify API with `context.route()`, inject auth state via `addInitScript`, assert on `bodyText` substrings.
+- This is the ONLY way to verify dev-mode hydration and interactive flows.
