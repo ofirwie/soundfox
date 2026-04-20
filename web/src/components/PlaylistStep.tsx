@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { ReactElement } from "react";
 import Image from "next/image";
 import { getUserPlaylists, type SpotifyPlaylist } from "@/lib/spotify-client";
 import { getRecentPlaylistIds } from "@/lib/storage";
@@ -10,7 +11,7 @@ interface PlaylistStepProps {
 }
 
 // [M4 FIX] Placeholder when playlist has no cover image
-function PlaylistImagePlaceholder(): React.ReactElement {
+function PlaylistImagePlaceholder(): ReactElement {
   return (
     <div className="w-full aspect-square bg-[var(--bg-secondary)] flex items-center justify-center rounded-md">
       <svg
@@ -31,7 +32,7 @@ function PlaylistImagePlaceholder(): React.ReactElement {
   );
 }
 
-export default function PlaylistStep({ onSelect }: PlaylistStepProps): React.ReactElement {
+export default function PlaylistStep({ onSelect }: PlaylistStepProps): ReactElement {
   const [playlists, setPlaylists] = useState<SpotifyPlaylist[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -152,7 +153,7 @@ export default function PlaylistStep({ onSelect }: PlaylistStepProps): React.Rea
   );
 }
 
-function PlaylistCard({ pl, onSelect }: { pl: SpotifyPlaylist; onSelect: (pl: SpotifyPlaylist) => void }): React.ReactElement {
+function PlaylistCard({ pl, onSelect }: { pl: SpotifyPlaylist; onSelect: (pl: SpotifyPlaylist) => void }): ReactElement {
   return (
     <button
       onClick={() => onSelect(pl)}

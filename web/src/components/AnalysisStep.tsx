@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import type { ReactElement } from "react";
 import {
   runPipelineStreaming,
   type BatchUpdate,
@@ -34,7 +35,7 @@ export default function AnalysisStep({
   playlist,
   scanOptions,
   onComplete,
-}: AnalysisStepProps): React.ReactElement {
+}: AnalysisStepProps): ReactElement {
   const [progress, setProgress] = useState<BatchUpdate>({
     batch: [], totalFound: 0, phase: "analyze",
     message: "Starting...", percent: 0, done: false,

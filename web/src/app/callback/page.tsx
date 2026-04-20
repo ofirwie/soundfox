@@ -1,10 +1,11 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
+import type { ReactElement } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { handleCallback } from "@/lib/spotify-auth";
 
-function CallbackHandler(): React.ReactElement {
+function CallbackHandler(): ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +46,7 @@ function CallbackHandler(): React.ReactElement {
   );
 }
 
-export default function CallbackPage(): React.ReactElement {
+export default function CallbackPage(): ReactElement {
   return (
     <Suspense fallback={<main className="flex min-h-screen items-center justify-center"><p>Loading...</p></main>}>
       <CallbackHandler />

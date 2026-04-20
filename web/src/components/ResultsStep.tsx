@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactElement } from "react";
 import { type PipelineResult, type ScoredTrack } from "@/lib/discovery-pipeline";
 import { saveAnalysis, saveTargetPlaylist } from "@/lib/storage";
 import {
@@ -56,7 +57,7 @@ function sortTracks(tracks: ScoredTrack[], key: SortKey, randomSeed: number): Sc
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
-export default function ResultsStep({ result, playlistName, playlistId }: ResultsStepProps): React.ReactElement {
+export default function ResultsStep({ result, playlistName, playlistId }: ResultsStepProps): ReactElement {
   const { results, tasteVector, coreGenres } = result;
 
   // ── Destination playlist ───────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import type { ReactElement } from "react";
 import { type ScanOptions } from "@/lib/discovery-pipeline";
 import { type SpotifyPlaylist } from "@/lib/spotify-client";
 import { loadLastScanOptions, saveLastScanOptions } from "@/lib/storage";
@@ -10,12 +11,24 @@ interface ScanOptionsStepProps {
   onStart: (options: ScanOptions) => void;
 }
 
-export default function ScanOptionsStep({ playlist, onStart }: ScanOptionsStepProps): React.ReactElement {
+export default function ScanOptionsStep({ playlist, onStart }: ScanOptionsStepProps): ReactElement {
   // Pre-fill with last used options if available
-  const lastOptions = typeof window !== "undefined" ? loadLastScanOptions() : null;
-  const [allowKnownArtists, setAllowKnownArtists] = useState(lastOptions?.allowKnownArtists ?? false);
-  const [minYear, setMinYear] = useState(lastOptions?.minYear ?? 2000);
-  const [resultCount, setResultCount] = useState(lastOptions?.resultCount ?? 500);
+  const [allowKnownArtists, setAllowKnownArtists] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return loadLastScanOptions()?.allowKnownArtists ?? false;
+  });
+  const [minYear, setMinYear] = useState(() => {
+    if (typeof window === "undefined") return 2000;
+    return loadLastScanOptions()?.minYear ?? 2000;
+  });
+  const [resultCount, setResultCount] = useState(() => {
+    if (typeof window === "undefined") return 500;
+    return loadLastScanOptions()?.resultCount ?? 500;
+  });
+  const [lastOptions, setLastOptions] = useState<ScanOptions | null>(null);
+  useEffect(() => {
+    setLastOptions(loadLastScanOptions());
+  }, []);
 
   function handleStart(): void {
     const options = { allowKnownArtists, minYear, resultCount };

@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "Stop": [{
+      "matcher": "",
+      "hooks": [{
+        "type": "command",
+        "command": "bash -c 'if [ ! -f .claude/primer.md ]; then echo \"Missing .claude/primer.md\" && exit 2; fi; echo \"Primer present\"'"
+      }]
+    }]
+  }
+}

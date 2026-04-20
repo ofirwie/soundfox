@@ -1,11 +1,13 @@
+import type { ReactElement, ReactNode } from "react";
+
 interface WizardLayoutProps {
   step: number;
   totalSteps: number;
   stepName: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }
 
-export default function WizardLayout({ step, totalSteps, stepName, children }: WizardLayoutProps): React.ReactElement {
+export default function WizardLayout({ step, totalSteps, stepName, children }: WizardLayoutProps): ReactElement {
   return (
     <main className="min-h-screen flex flex-col">
       <header className="border-b border-[var(--border)] px-8 py-4">

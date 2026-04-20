@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import type { ReactElement } from "react";
 import WizardLayout from "@/components/WizardLayout";
 import SetupStep from "@/components/SetupStep";
 import PlaylistStep from "@/components/PlaylistStep";
@@ -14,7 +15,7 @@ import { type PipelineResult, type ScanOptions } from "@/lib/discovery-pipeline"
 
 const STEP_NAMES = ["Setup", "Connect", "Choose Playlist", "Scan Options", "Analyze", "Results"];
 
-export default function WizardPage(): React.ReactElement {
+export default function WizardPage(): ReactElement {
   const [step, setStep] = useState(1);
   const [user, setUser] = useState<SpotifyUser | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyPlaylist | null>(null);

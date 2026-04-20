@@ -1,13 +1,14 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactElement } from "react";
 import { getClientId, setClientId } from "@/lib/storage";
 
 interface SetupStepProps {
   onComplete: () => void;
 }
 
-export default function SetupStep({ onComplete }: SetupStepProps): React.ReactElement {
+export default function SetupStep({ onComplete }: SetupStepProps): ReactElement {
   const [clientId, setClientIdValue] = useState(() => {
     if (typeof window === "undefined") return "";
     return getClientId() ?? "";
