@@ -12,9 +12,10 @@ await context.route("https://api.spotify.com/v1/**", async (route) => {
       contentType: "application/json",
       body: JSON.stringify({
         items: [
-          { id: "pl1", name: "Sample Playlist A", images: [], tracks: { total: 1367 }, owner: { display_name: "Test User" } },
+          // Real Spotify can return null for images — must not crash
+          { id: "pl1", name: "Sample Playlist A", images: null, tracks: { total: 1367 }, owner: { display_name: "Test User" } },
           { id: "pl2", name: "Sample Playlist B", images: [], tracks: { total: 40 }, owner: { display_name: "Test User" } },
-          { id: "pl3", name: "Chill Vibes", images: [], tracks: { total: 120 }, owner: { display_name: "Test User" } },
+          { id: "pl3", name: "Chill Vibes", images: [{ url: "https://i.scdn.co/image/abc" }], tracks: { total: 120 }, owner: { display_name: "Test User" } },
         ],
         next: null,
       }),
@@ -53,7 +54,7 @@ const hasPlaylistPicker = bodyText.includes("Choose a Playlist");
 const hasRecent = bodyText.includes("Recently analyzed");
 const hasNightRock = bodyText.includes("Sample Playlist A");
 const hasRockWorkout = bodyText.includes("Sample Playlist B");
-const hasOfir = bodyText.includes("Test User");
+const hasUser = bodyText.includes("Test User");
 
 console.log("=== Test results ===");
 console.log("Final URL:", url);
@@ -62,14 +63,14 @@ console.log("Has 'Choose a Playlist':", hasPlaylistPicker);
 console.log("Has 'Recently analyzed':", hasRecent);
 console.log("Has 'Sample Playlist A':", hasNightRock);
 console.log("Has 'Sample Playlist B':", hasRockWorkout);
-console.log("Has 'Ofir' (user name):", hasOfir);
+console.log("Has 'Test User' (display_name):", hasUser);
 
 await page.screenshot({ path: "test-full-flow-screenshot.png", fullPage: true });
 
 console.log("\n=== Console ===");
 consoleLog.slice(0, 20).forEach((l) => console.log(l));
 
-const pass = hasPlaylistPicker && hasRecent && hasNightRock && hasRockWorkout && hasOfir && url.includes("/go");
+const pass = hasPlaylistPicker && hasRecent && hasNightRock && hasRockWorkout && hasUser && url.includes("/go");
 console.log("\n=== " + (pass ? "PASS ✓" : "FAIL ✗") + " ===");
 
 await browser.close();

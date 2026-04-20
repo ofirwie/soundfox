@@ -30,7 +30,7 @@ const TrackRow = memo(function TrackRow({
   onPreview,
 }: TrackRowProps): React.ReactElement {
   const hasPreview = !!item.track.preview_url;
-  const albumImage = item.track.album.images[0]?.url;
+  const albumImage = item.track.album.images?.[0]?.url;
   const scorePercent = Math.round(item.score * 100);
   const year = item.track.album.release_date?.slice(0, 4) ?? "";
 

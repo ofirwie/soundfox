@@ -100,7 +100,7 @@ export default function GoPage(): ReactElement {
             <h1 className="text-2xl font-bold">SoundFox</h1>
           </button>
           <div className="flex items-center gap-3">
-            {user?.images[0] ? (
+            {user?.images && user.images[0]?.url ? (
               <Image src={user.images[0].url} alt="" width={32} height={32} className="rounded-full" unoptimized />
             ) : user ? (
               <div className="w-8 h-8 rounded-full bg-[var(--accent)] text-black flex items-center justify-center text-sm font-bold">

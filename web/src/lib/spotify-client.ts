@@ -57,13 +57,13 @@ async function spotifyFetch(path: string, options?: RequestInit, retries: number
 export interface SpotifyUser {
   id: string;
   display_name: string;
-  images: Array<{ url: string }>;
+  images: Array<{ url: string }> | null;
 }
 
 export interface SpotifyPlaylist {
   id: string;
   name: string;
-  images: Array<{ url: string }>;
+  images: Array<{ url: string }> | null;
   tracks: { total: number };
   owner: { display_name: string };
 }
@@ -77,7 +77,7 @@ export interface SpotifyTrack {
   album: {
     name: string;
     release_date: string;
-    images: Array<{ url: string }>;
+    images: Array<{ url: string }> | null;
   };
   artists: Array<{ id: string; name: string }>;
   explicit: boolean;
@@ -88,7 +88,7 @@ export interface SpotifyArtist {
   name: string;
   genres: string[];
   followers: { total: number };
-  images: Array<{ url: string }>;
+  images: Array<{ url: string }> | null;
   popularity: number;
 }
 

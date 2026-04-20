@@ -161,7 +161,7 @@ function PlaylistCard({ pl, onSelect }: { pl: SpotifyPlaylist; onSelect: (pl: Sp
                  hover:border-[var(--accent)] hover:bg-[var(--bg-secondary)] transition-all
                  text-left flex flex-col gap-2"
     >
-      {pl.images.length > 0 ? (
+      {pl.images && pl.images.length > 0 && pl.images[0]?.url ? (
         <div className="w-full aspect-square relative rounded-md overflow-hidden">
           <Image
             src={pl.images[0].url}
