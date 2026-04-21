@@ -40,6 +40,7 @@ const TrackRow = memo(function TrackRow({
 
   return (
     <div
+      data-track-id={item.track.id}
       className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
         isAdded
           ? "bg-[var(--bg-card)] border-[var(--accent)]/30"
