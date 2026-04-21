@@ -7,7 +7,7 @@ export const FEATURE_KEYS = [
 ] as const;
 
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
-export type AudioFeatures = Record<FeatureKey, number>;
+export type AudioFeatures = Partial<Record<FeatureKey, number>>;
 
 function extractSpotifyId(href: string): string {
   const match = href.match(/\/track\/([a-zA-Z0-9]+)/);
@@ -37,12 +37,12 @@ export async function getAudioFeaturesBatch(
           if (!item) continue;
           const spotifyId = extractSpotifyId(String(item.href ?? ""));
           if (!spotifyId) continue;
-          const features: Partial<AudioFeatures> = {};
+          const features: AudioFeatures = {};
           let has = false;
           for (const key of FEATURE_KEYS) {
             if (item[key] != null) { features[key] = Number(item[key]); has = true; }
           }
-          if (has) results.set(spotifyId, features as AudioFeatures);
+          if (has) results.set(spotifyId, features);
         }
       }
     } catch {
