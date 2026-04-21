@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { type PipelineResult, type ScoredTrack } from "@/lib/discovery-pipeline";
 import { saveAnalysis, saveTargetPlaylist } from "@/lib/storage";
+import { blacklistTrack, isTrackBlacklisted } from "@/lib/profile";
 import {
   getCurrentUser, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist,
   getUserPlaylists, getPlaylistTracks, type SpotifyPlaylist,
@@ -73,12 +74,13 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
   const [playlistsLoaded, setPlaylistsLoaded] = useState(false);
 
   // ── Track state ────────────────────────────────────────────────────────────
-  // added: Set of track IDs that have been confirmed added to the target playlist
   const [added, setAdded] = useState<Set<string>>(new Set());
-  // statuses: per-track API call status for optimistic UI
   const [statuses, setStatuses] = useState<Map<string, TrackStatus>>(new Map());
-  // debounce timers per track [V2-B]
   const debounceTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // rejected: optimistically hidden tracks (persisted via profile blacklist)
+  const [rejected, setRejected] = useState<Set<string>>(new Set());
+  // toast for quota exceeded
+  const [toast, setToast] = useState<string | null>(null);
 
   // ── Cleanup all debounce timers on unmount [H2] ───────────────────────────
   useEffect(() => {
@@ -160,6 +162,7 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
     const text = textFilter.toLowerCase().trim();
 
     const filtered = results.filter((item) => {
+      if (rejected.has(item.track.id)) return false;
       if (text && !item.track.name.toLowerCase().includes(text) && !item.artist.name.toLowerCase().includes(text)) {
         return false;
       }
@@ -170,7 +173,7 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
     });
 
     return sortTracks(filtered, sortKey, randomSeed);
-  }, [results, textFilter, genreFilter, followerMin, followerMax, sortKey, randomSeed]);
+  }, [results, rejected, textFilter, genreFilter, followerMin, followerMax, sortKey, randomSeed]);
 
   const totalPages = Math.max(1, Math.ceil(filteredSorted.length / PAGE_SIZE));
   const pageItems = filteredSorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -276,6 +279,19 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [destMode, nameConfirmed, ensureTargetPlaylist]);
 
+  // ── Reject handler ────────────────────────────────────────────────────────
+
+  const handleReject = useCallback((trackId: string, artistId: string, artistName: string, genres: string[]): void => {
+    blacklistTrack(playlistId, trackId, { artistId, artistName, genres });
+    // Verify the write actually persisted (saveProfile silently swallows QuotaExceededError)
+    if (!isTrackBlacklisted(playlistId, trackId)) {
+      setToast("Could not save rejection — storage full. Clear old data and try again.");
+      setTimeout(() => setToast(null), 5000);
+      return;
+    }
+    setRejected((prev) => new Set([...prev, trackId]));
+  }, [playlistId]);
+
   // ── Audio preview ─────────────────────────────────────────────────────────
 
   function handlePreview(track: ScoredTrack["track"]): void {
@@ -361,6 +377,13 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
               Open in Spotify
             </a>
           )}
+        </div>
+      )}
+
+      {/* Toast notification */}
+      {toast && (
+        <div className="flex items-center gap-2 px-4 py-2 bg-red-950/40 border border-red-800 rounded-xl text-red-400 text-sm">
+          {toast}
         </div>
       )}
 
@@ -557,6 +580,7 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
               isPlaying={playingId === item.track.id}
               onToggle={handleToggle}
               onPreview={handlePreview}
+              onReject={handleReject}
             />
           ))}
         </div>

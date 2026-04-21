@@ -14,6 +14,7 @@ interface TrackRowProps {
   isPlaying: boolean;
   onToggle: (id: string, added: boolean) => void;
   onPreview: (track: ScoredTrack["track"]) => void;
+  onReject?: (trackId: string, artistId: string, artistName: string, genres: string[]) => void;
 }
 
 /**
@@ -28,6 +29,7 @@ const TrackRow = memo(function TrackRow({
   isPlaying,
   onToggle,
   onPreview,
+  onReject,
 }: TrackRowProps): React.ReactElement {
   const hasPreview = !!item.track.preview_url;
   const albumImage = item.track.album.images?.[0]?.url;
@@ -137,6 +139,24 @@ const TrackRow = memo(function TrackRow({
           </svg>
         )}
       </button>
+
+      {/* Reject button — blacklists track + artist permanently for this playlist */}
+      {onReject && (
+        <button
+          onClick={() => onReject(item.track.id, item.artist.id, item.artist.name, item.artist.genres)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") onReject(item.track.id, item.artist.id, item.artist.name, item.artist.genres);
+          }}
+          className="flex-shrink-0 w-6 h-6 rounded border-2 border-red-800 hover:border-red-500 hover:bg-red-900/30
+                     flex items-center justify-center transition-colors text-red-500"
+          title="Reject — never show this track again"
+          aria-label="Reject track"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3} className="w-3 h-3">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      )}
 
       {/* Add/remove checkbox — optimistic UI with per-row spinner [V2-B] */}
       <button
