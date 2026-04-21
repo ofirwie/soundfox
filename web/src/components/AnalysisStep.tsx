@@ -11,6 +11,7 @@ import {
 } from "@/lib/discovery-pipeline";
 import { saveScanState, clearScanState } from "@/lib/storage";
 import { type SpotifyPlaylist } from "@/lib/spotify-client";
+import { loadProfile, createEmptyProfile, saveProfile } from "@/lib/profile";
 
 interface AnalysisStepProps {
   playlist: SpotifyPlaylist;
@@ -83,9 +84,14 @@ export default function AnalysisStep({
 
     void (async () => {
       try {
+        // Load per-playlist profile — create and save if first time for this playlist
+        const profile = loadProfile(playlist.id) ?? createEmptyProfile(playlist.id);
+        if (!loadProfile(playlist.id)) saveProfile(profile);
+
         const gen = runPipelineStreaming(playlist.id, {
           ...scanOptions,
           signal: controller.signal,
+          blacklist: profile.blacklist,
         });
 
         for await (const update of gen) {
