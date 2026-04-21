@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import WizardLayout from "@/components/WizardLayout";
 import SetupStep from "@/components/SetupStep";
 import PlaylistStep from "@/components/PlaylistStep";
+import IntentStep from "@/components/IntentStep";
 import ScanOptionsStep from "@/components/ScanOptionsStep";
 import AnalysisStep from "@/components/AnalysisStep";
 import ResultsStep from "@/components/ResultsStep";
@@ -12,25 +13,22 @@ import { getClientId, getAccessToken, loadScanState } from "@/lib/storage";
 import { startLogin } from "@/lib/spotify-auth";
 import { getCurrentUser, type SpotifyUser, type SpotifyPlaylist } from "@/lib/spotify-client";
 import { type PipelineResult, type ScanOptions } from "@/lib/discovery-pipeline";
+import { setIntent } from "@/lib/profile";
+import type { Intent } from "@/lib/intent-types";
 
-const STEP_NAMES = ["Setup", "Connect", "Choose Playlist", "Scan Options", "Analyze", "Results"];
+const STEP_NAMES = ["Setup", "Connect", "Choose Playlist", "Intent", "Scan Options", "Analyze", "Results"];
 
 export default function WizardPage(): ReactElement {
   const [step, setStep] = useState(1);
   const [user, setUser] = useState<SpotifyUser | null>(null);
   const [selectedPlaylist, setSelectedPlaylist] = useState<SpotifyPlaylist | null>(null);
-  // H5: scanOptions is set once by handleScanOptionsConfirmed and never mutated.
-  // useState is sufficient here because setScanOptions is called with a fresh object
-  // only when the user confirms options — it is not rebuilt on every render.
   const [scanOptions, setScanOptions] = useState<ScanOptions>({});
   const [pipelineResult, setPipelineResult] = useState<PipelineResult | null>(null);
-  // Resume banner: show if a previous partial scan is available
   const [resumeAvailable, setResumeAvailable] = useState(false);
 
   useEffect(() => {
     if (!getClientId()) return;
 
-    // Check for resumable scan and pre-populate result so "Resume" goes straight to ResultsStep [C2]
     const saved = loadScanState();
     if (saved && saved.allResults.length > 0) {
       setResumeAvailable(true);
@@ -69,24 +67,35 @@ export default function WizardPage(): ReactElement {
     setStep(4);
   }, []);
 
+  const handleIntentConfirmed = useCallback(
+    (intent: Intent | null, intentText: string) => {
+      if (intent && selectedPlaylist) {
+        setIntent(selectedPlaylist.id, intent, intentText);
+        setScanOptions((prev) => ({ ...prev, intent: intent ?? undefined }));
+      }
+      setStep(5);
+    },
+    [selectedPlaylist],
+  );
+
   const handleScanOptionsConfirmed = useCallback((opts: ScanOptions) => {
     setScanOptions(opts);
-    setStep(5);
+    setStep(6);
   }, []);
 
   const handleAnalysisComplete = useCallback((result: PipelineResult) => {
     setPipelineResult(result);
-    setStep(6);
+    setStep(7);
   }, []);
 
   return (
-    <WizardLayout step={step} totalSteps={6} stepName={STEP_NAMES[step - 1]}>
+    <WizardLayout step={step} totalSteps={7} stepName={STEP_NAMES[step - 1]}>
       {/* Resume banner */}
       {resumeAvailable && step === 3 && (
         <div className="mb-4 p-3 bg-yellow-950/30 border border-yellow-700 rounded-xl flex items-center justify-between gap-3 text-sm">
           <span className="text-yellow-300">A previous scan was interrupted. Resume?</span>
           <button
-            onClick={() => setStep(6)} // Jump straight to results with saved state
+            onClick={() => setStep(7)}
             className="px-3 py-1 bg-yellow-600 hover:bg-yellow-500 rounded-lg font-semibold text-xs transition-colors"
           >
             Resume
@@ -119,10 +128,23 @@ export default function WizardPage(): ReactElement {
       {step === 3 && <PlaylistStep onSelect={handlePlaylistSelect} />}
 
       {step === 4 && selectedPlaylist && (
-        <ScanOptionsStep playlist={selectedPlaylist} onStart={handleScanOptionsConfirmed} />
+        <IntentStep
+          playlistId={selectedPlaylist.id}
+          playlistContext={{
+            name: selectedPlaylist.name,
+            topArtists: [],
+            topGenres: [],
+            trackCount: selectedPlaylist.tracks.total,
+          }}
+          onContinue={handleIntentConfirmed}
+        />
       )}
 
       {step === 5 && selectedPlaylist && (
+        <ScanOptionsStep playlist={selectedPlaylist} onStart={handleScanOptionsConfirmed} />
+      )}
+
+      {step === 6 && selectedPlaylist && (
         <AnalysisStep
           playlist={selectedPlaylist}
           scanOptions={scanOptions}
@@ -130,7 +152,7 @@ export default function WizardPage(): ReactElement {
         />
       )}
 
-      {step === 6 && pipelineResult && selectedPlaylist && (
+      {step === 7 && pipelineResult && selectedPlaylist && (
         <ResultsStep
           result={pipelineResult}
           playlistName={selectedPlaylist.name}

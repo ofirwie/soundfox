@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 import PlaylistStep from "@/components/PlaylistStep";
+import IntentStep from "@/components/IntentStep";
 import AnalysisStep from "@/components/AnalysisStep";
 import ResultsStep from "@/components/ResultsStep";
 import {
@@ -14,8 +15,10 @@ import {
 import { refreshAccessToken } from "@/lib/spotify-auth";
 import { getCurrentUser, type SpotifyUser, type SpotifyPlaylist } from "@/lib/spotify-client";
 import { type PipelineResult, type ScanOptions } from "@/lib/discovery-pipeline";
+import { setIntent } from "@/lib/profile";
+import type { Intent } from "@/lib/intent-types";
 
-type Mode = "loading" | "home" | "analyze" | "results";
+type Mode = "loading" | "home" | "intent" | "analyze" | "results";
 
 export default function GoPage(): ReactElement {
   const router = useRouter();
@@ -84,8 +87,19 @@ export default function GoPage(): ReactElement {
     saveLastScanOptions(options);
     setSelectedPlaylist(pl);
     setScanOptions(options);
-    setMode("analyze");
+    setMode("intent");
   }, []);
+
+  const handleIntentConfirmed = useCallback(
+    (intent: Intent | null, intentText: string) => {
+      if (intent && selectedPlaylist) {
+        setIntent(selectedPlaylist.id, intent, intentText);
+        setScanOptions((prev) => ({ ...prev, intent: intent ?? undefined }));
+      }
+      setMode("analyze");
+    },
+    [selectedPlaylist],
+  );
 
   const handleAnalysisComplete = useCallback((result: PipelineResult) => {
     setPipelineResult(result);
@@ -129,6 +143,19 @@ export default function GoPage(): ReactElement {
           )}
 
           {mode === "home" && <PlaylistStep onSelect={handlePlaylistSelect} />}
+
+          {mode === "intent" && selectedPlaylist && (
+            <IntentStep
+              playlistId={selectedPlaylist.id}
+              playlistContext={{
+                name: selectedPlaylist.name,
+                topArtists: [],
+                topGenres: [],
+                trackCount: selectedPlaylist.tracks.total,
+              }}
+              onContinue={handleIntentConfirmed}
+            />
+          )}
 
           {mode === "analyze" && selectedPlaylist && (
             <AnalysisStep

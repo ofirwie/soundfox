@@ -1,4 +1,6 @@
 import { FEATURE_KEYS, type AudioFeatures, type FeatureKey } from "./reccobeats";
+import { normalizeAudioFeatures, type TasteClusters } from "./clustering";
+export type { TasteClusters };
 
 export interface TasteVector {
   mean: Partial<Record<FeatureKey, number>>;
@@ -131,4 +133,40 @@ export function scoreCandidate(
 
   // 70% similarity + 30% range fit (matches Python implementation)
   return 0.7 * similarity + 0.3 * rangeScore;
+}
+
+const CLUSTER_FEAT_KEYS = [
+  "acousticness", "danceability", "energy", "instrumentalness",
+  "liveness", "loudness", "speechiness", "tempo", "valence",
+] as const;
+
+function clusterDistance(
+  a: Record<string, number>,
+  b: Record<string, number>,
+): number {
+  let sum = 0;
+  let count = 0;
+  for (const key of CLUSTER_FEAT_KEYS) {
+    const av = a[key];
+    const bv = b[key];
+    if (av == null || bv == null) continue;
+    sum += (av - bv) ** 2;
+    count++;
+  }
+  return count > 0 ? Math.sqrt(sum / count) : 0;
+}
+
+export function scoreCandidateClustered(
+  features: AudioFeatures,
+  clusters: TasteClusters,
+): { score: number; clusterId: number; distance: number } {
+  const norm = normalizeAudioFeatures(features);
+  let bestId = 0;
+  let bestDist = Infinity;
+  for (const c of clusters.clusters) {
+    const d = clusterDistance(norm, c.centroid);
+    if (d < bestDist) { bestDist = d; bestId = c.id; }
+  }
+  const score = 1 / (1 + bestDist);
+  return { score, clusterId: bestId, distance: bestDist };
 }

@@ -1,8 +1,9 @@
 "use client";
 
-import React, { memo } from "react";
+import React, { memo, useState } from "react";
 import Image from "next/image";
 import { type ScoredTrack } from "@/lib/discovery-pipeline";
+import WhyPanel from "./WhyPanel";
 
 export type TrackStatus = "idle" | "adding" | "added" | "removing";
 
@@ -31,6 +32,7 @@ const TrackRow = memo(function TrackRow({
   onPreview,
   onReject,
 }: TrackRowProps): React.ReactElement {
+  const [expanded, setExpanded] = useState(false);
   const hasPreview = !!item.track.preview_url;
   const albumImage = item.track.album.images?.[0]?.url;
   const scorePercent = Math.round(item.score * 100);
@@ -41,12 +43,14 @@ const TrackRow = memo(function TrackRow({
   return (
     <div
       data-track-id={item.track.id}
-      className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+      data-source={(item.sourceTags ?? ["spotify"]).join(",")}
+      className={`rounded-xl border transition-all ${
         isAdded
           ? "bg-[var(--bg-card)] border-[var(--accent)]/30"
           : "bg-[var(--bg-secondary)] border-[var(--border)] opacity-60"
       }`}
     >
+    <div className="flex items-center gap-3 p-3">
       {/* Rank */}
       <span className="text-[var(--text-secondary)] text-sm w-6 text-center flex-shrink-0 tabular-nums">
         {index + 1}
@@ -181,6 +185,30 @@ const TrackRow = memo(function TrackRow({
           </svg>
         ) : null}
       </button>
+
+      {/* Why button — expand breakdown panel */}
+      {item.breakdown && (
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="flex-shrink-0 w-6 h-6 rounded border border-[var(--border)] flex items-center justify-center text-[var(--text-secondary)] hover:text-white hover:border-[var(--accent)]/50 transition-colors"
+          title={expanded ? "Hide breakdown" : "Why this track?"}
+          aria-label={expanded ? "Hide breakdown" : "Why this track?"}
+          aria-expanded={expanded}
+          data-testid="why-button"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} className="w-3 h-3">
+            {expanded
+              ? <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+              : <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />}
+          </svg>
+        </button>
+      )}
+    </div>
+
+    {/* WhyPanel — expandable breakdown */}
+    {expanded && item.breakdown && (
+      <WhyPanel breakdown={item.breakdown} />
+    )}
     </div>
   );
 });

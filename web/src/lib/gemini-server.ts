@@ -1,6 +1,7 @@
 // Server-side only — reads GEMINI_API_KEY from process.env (never reaches browser)
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { Intent, LLMRecommendation } from "./intent-types";
+import { defaultIntent } from "./intent-types";
 export type { Intent, LLMRecommendation };
 
 const MODEL = process.env.GEMINI_MODEL ?? "gemini-1.5-pro";
@@ -17,9 +18,6 @@ export async function parseIntent(freeText: string, playlistContext: {
   topGenres: string[];
   trackCount: number;
 }): Promise<Intent> {
-  const client = getClient();
-  const model = client.getGenerativeModel({ model: MODEL });
-
   const prompt = `You are a music recommendation assistant. A user wants to extend their playlist and describes what they want in free text.
 
 Playlist context:
@@ -54,11 +52,23 @@ Respond with ONLY a JSON object (no markdown, no explanation) matching this Type
   "notes": "brief summary of what you inferred"
 }`;
 
-  const result = await model.generateContent(prompt);
-  const text = result.response.text().trim();
-  // Strip markdown code fences if present
-  const json = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
-  return JSON.parse(json) as Intent;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const client = getClient();
+      const model = client.getGenerativeModel({
+        model: MODEL,
+        ...(attempt === 1 ? { generationConfig: { temperature: 0 } } : {}),
+      });
+      const result = await model.generateContent(prompt);
+      const text = result.response.text().trim();
+      const json = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+      return JSON.parse(json) as Intent;
+    } catch {
+      // first attempt failed — retry at temperature=0; second failure falls through
+    }
+  }
+
+  return defaultIntent();
 }
 
 export async function generateRecommendations(params: {

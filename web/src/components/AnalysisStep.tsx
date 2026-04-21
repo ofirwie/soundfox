@@ -11,7 +11,8 @@ import {
 } from "@/lib/discovery-pipeline";
 import { saveScanState, clearScanState } from "@/lib/storage";
 import { type SpotifyPlaylist } from "@/lib/spotify-client";
-import { loadProfile, createEmptyProfile, saveProfile } from "@/lib/profile";
+import { loadProfile, createEmptyProfile, saveProfile, computeRefinedTasteClusters, getGenreWeights } from "@/lib/profile";
+import { getAudioFeaturesBatch } from "@/lib/reccobeats";
 
 interface AnalysisStepProps {
   playlist: SpotifyPlaylist;
@@ -56,6 +57,7 @@ export default function AnalysisStep({
     const done = doneUpdateRef.current;
     return {
       tasteVector: done?.tasteVector ?? { mean: {}, std: {}, minVal: {}, maxVal: {}, sampleCount: 0 },
+      tasteClusters: done?.tasteClusters,
       coreGenres: done?.coreGenres ?? [],
       tracksAnalyzed: done?.tracksAnalyzed ?? 0,
       tracksWithFeatures: done?.tracksWithFeatures ?? 0,
@@ -64,6 +66,7 @@ export default function AnalysisStep({
       candidateTracks: sorted.length,
       scored: sorted.length,
       results: sorted,
+      qualityThresholdApplied: done?.qualityThresholdApplied,
     };
   }, []);
 
@@ -88,10 +91,19 @@ export default function AnalysisStep({
         const profile = loadProfile(playlist.id) ?? createEmptyProfile(playlist.id);
         if (!loadProfile(playlist.id)) saveProfile(profile);
 
+        // Phase 8: compute refined clusters + genre weights from learning history
+        const [refinedClusters, genreWeights] = await Promise.all([
+          computeRefinedTasteClusters(profile, (ids) => getAudioFeaturesBatch(ids)),
+          Promise.resolve(getGenreWeights(profile)),
+        ]);
+
         const gen = runPipelineStreaming(playlist.id, {
           ...scanOptions,
           signal: controller.signal,
           blacklist: profile.blacklist,
+          intent: profile.intent ?? undefined,
+          refinedClusters: refinedClusters ?? undefined,
+          genreWeights: Object.keys(genreWeights).length > 0 ? genreWeights : undefined,
         });
 
         for await (const update of gen) {

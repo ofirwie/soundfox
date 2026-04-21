@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { type PipelineResult, type ScoredTrack } from "@/lib/discovery-pipeline";
 import { saveAnalysis, saveTargetPlaylist } from "@/lib/storage";
-import { blacklistTrack, isTrackBlacklisted, markAccepted } from "@/lib/profile";
+import { blacklistTrack, isTrackBlacklisted, markAccepted, loadProfile } from "@/lib/profile";
 import {
   getCurrentUser, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist,
   getUserPlaylists, getPlaylistTracks, type SpotifyPlaylist,
@@ -93,6 +93,19 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
 
   // ── Pagination ─────────────────────────────────────────────────────────────
   const [page, setPage] = useState(0);
+
+  // ── Phase 8: learning banner ───────────────────────────────────────────────
+  const [learningStats, setLearningStats] = useState<{ accepted: number; rejected: number; runs: number } | null>(null);
+  useEffect(() => {
+    const profile = loadProfile(playlistId);
+    if (profile && profile.accepted.trackIds.length >= 20) {
+      setLearningStats({
+        accepted: profile.stats.acceptedCount,
+        rejected: profile.stats.rejectedCount,
+        runs: profile.stats.runsCount,
+      });
+    }
+  }, [playlistId]);
 
   // ── Sort & filter ──────────────────────────────────────────────────────────
   const [sortKey, setSortKey] = useState<SortKey>("score");
@@ -319,6 +332,17 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
     <div className="space-y-4">
       <audio ref={audioRef} onEnded={() => setPlayingId(null)} className="hidden" />
 
+      {/* Phase 8: Learning banner */}
+      {learningStats && (
+        <div className="px-4 py-3 bg-purple-950/30 border border-purple-700 rounded-xl flex items-center gap-3 text-sm" data-testid="learning-banner">
+          <span className="text-lg">🧠</span>
+          <span className="text-purple-300 font-medium">Using learned preferences</span>
+          <span className="text-[var(--text-secondary)]">
+            — {learningStats.accepted} accepted, {learningStats.rejected} rejected across {learningStats.runs} runs
+          </span>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
@@ -344,11 +368,23 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
       {/* Empty state */}
       {results.length === 0 && (
         <div className="bg-[var(--bg-card)] border border-[var(--border)] rounded-xl p-8 text-center space-y-3">
-          <p className="text-lg font-semibold">No recommendations found</p>
-          <p className="text-[var(--text-secondary)] text-sm max-w-md mx-auto">
-            This usually means: the playlist is empty, ReccoBeats doesn&apos;t have audio features for these
-            tracks, or no candidate artists matched the genre profile. Try a different playlist.
-          </p>
+          {result.qualityThresholdApplied !== undefined ? (
+            <>
+              <p className="text-lg font-semibold">No matches — try a lower quality tier</p>
+              <p className="text-[var(--text-secondary)] text-sm max-w-md mx-auto">
+                Your quality threshold ({Math.round(result.qualityThresholdApplied * 100)}%) filtered out all candidates.
+                Lower the threshold in Intent settings or choose &ldquo;Inclusive&rdquo; tier.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-lg font-semibold">No recommendations found</p>
+              <p className="text-[var(--text-secondary)] text-sm max-w-md mx-auto">
+                This usually means: the playlist is empty, ReccoBeats doesn&apos;t have audio features for these
+                tracks, or no candidate artists matched the genre profile. Try a different playlist.
+              </p>
+            </>
+          )}
           {onBack && (
             <button
               onClick={onBack}
