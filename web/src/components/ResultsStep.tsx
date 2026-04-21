@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactElement } from "react";
 import { type PipelineResult, type ScoredTrack } from "@/lib/discovery-pipeline";
 import { saveAnalysis, saveTargetPlaylist } from "@/lib/storage";
-import { blacklistTrack, isTrackBlacklisted } from "@/lib/profile";
+import { blacklistTrack, isTrackBlacklisted, markAccepted } from "@/lib/profile";
 import {
   getCurrentUser, createPlaylist, addTracksToPlaylist, removeTracksFromPlaylist,
   getUserPlaylists, getPlaylistTracks, type SpotifyPlaylist,
@@ -252,6 +252,7 @@ export default function ResultsStep({ result, playlistName, playlistId, onBack }
             await removeTracksFromPlaylist(plId, [`spotify:track:${trackId}`]);
           } else {
             await addTracksToPlaylist(plId, [`spotify:track:${trackId}`]);
+            markAccepted(playlistId, trackId);
           }
           setStatuses((prev) => {
             const next = new Map(prev);
