@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 const RECCOBEATS_BASE = "https://api.reccobeats.com/v1";
 
-// [v3-E] In-memory rate limiter: max 30 requests per minute per IP
+// In-memory rate limiter — v3: raised to 120/min to accommodate multi-source fan-out + deep sampling
 // Note: this resets on server restart; use Redis for persistent rate limiting in production
 interface RateLimitEntry {
   count: number;
@@ -10,7 +10,7 @@ interface RateLimitEntry {
 }
 
 const rateLimitMap = new Map<string, RateLimitEntry>();
-const RATE_LIMIT_MAX = 30;
+const RATE_LIMIT_MAX = 120;  // v3: raised from 30 to accommodate multi-source fan-out + deep sampling
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 
 function checkRateLimit(ip: string): boolean {
@@ -52,7 +52,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   if (!checkRateLimit(ip)) {
     return NextResponse.json(
-      { error: "Rate limit exceeded. Max 30 requests per minute." },
+      { error: "Rate limit exceeded. Max 120 requests per minute." },
       {
         status: 429,
         headers: { "Retry-After": "60" },
