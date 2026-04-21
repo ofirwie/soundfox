@@ -130,7 +130,11 @@ function checkAbort(signal: AbortSignal | undefined): void {
   if (signal?.aborted) throw new DOMException("Pipeline aborted", "AbortError");
 }
 
-// ─── Genre profile builder (unchanged from v1) ────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEAM 1 — build-source-taste.ts
+// Contains: buildGenreProfile + source-taste builder (getAudioFeaturesBatch call + buildTasteVector)
+// Phase 0 Task 0.5: will be extracted to pipeline/build-source-taste.ts
+// ═══════════════════════════════════════════════════════════════════════════════
 
 async function buildGenreProfile(
   tracks: SpotifyTrack[],
@@ -316,6 +320,11 @@ export async function* runPipelineStreaming(
     message: `Audio DNA ready — ${features.size} tracks with features`, percent: 18, done: false,
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SEAM 2 — source-spotify.ts
+  // Contains: Phases 4+5 — search candidate artists by genre term + genre/follower gate
+  // Phase 0 Task 0.5: will be extracted to pipeline/source-spotify.ts as buildSpotifyCandidates()
+  // ═══════════════════════════════════════════════════════════════════════════
   await debugLog({ phase: "BEFORE_search_phase", searchTermsCount: searchTerms.length, searchTerms });
   // ── Phase 4: Search candidate artists (expanded for v2) ───────────────────
   const candidateArtists = new Map<string, SpotifyArtist>();
@@ -383,6 +392,11 @@ export async function* runPipelineStreaming(
     message: `${genrePassed.length} artists passed genre gate`, percent: 40, done: false,
   };
 
+  // ═══════════════════════════════════════════════════════════════════════════
+  // SEAM 3 — merge-and-emit.ts
+  // Contains: Phase 6 — get top track per artist + score + batch yield + final done yield
+  // Phase 0 Task 0.5: will be extracted to pipeline/merge-and-emit.ts
+  // ═══════════════════════════════════════════════════════════════════════════
   // ── Phase 6: Get top track per artist, score in streaming batches ─────────
   const shuffled = [...genrePassed].sort(() => Math.random() - 0.5);
 
