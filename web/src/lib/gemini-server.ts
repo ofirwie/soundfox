@@ -1,5 +1,7 @@
 // Server-side only — reads GEMINI_API_KEY from process.env (never reaches browser)
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import type { Intent, LLMRecommendation } from "./intent-types";
+export type { Intent, LLMRecommendation };
 
 const MODEL = process.env.GEMINI_MODEL ?? "gemini-1.5-pro";
 
@@ -7,28 +9,6 @@ function getClient(): GoogleGenerativeAI {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY not set in .env");
   return new GoogleGenerativeAI(key);
-}
-
-export interface Intent {
-  purpose: string;
-  audioConstraints: {
-    tempoMin?: number;
-    tempoMax?: number;
-    energyMin?: number;
-    energyMax?: number;
-    valenceMin?: number;
-    valenceMax?: number;
-    popularityHint?: "low" | "mid" | "high";
-  };
-  genres: {
-    include: string[];
-    exclude: string[];
-  };
-  era?: string;
-  requirements: string[];
-  allowKnownArtists: boolean;
-  qualityThreshold: number;
-  notes: string;
 }
 
 export async function parseIntent(freeText: string, playlistContext: {
@@ -79,13 +59,6 @@ Respond with ONLY a JSON object (no markdown, no explanation) matching this Type
   // Strip markdown code fences if present
   const json = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
   return JSON.parse(json) as Intent;
-}
-
-export interface LLMRecommendation {
-  artist: string;
-  track: string;
-  why: string;
-  confidence: number;
 }
 
 export async function generateRecommendations(params: {

@@ -2,32 +2,8 @@
 
 import { searchArtists, getArtistTopTracks, type SpotifyTrack, type SpotifyArtist } from "./spotify-client";
 import type { AudioFeatures } from "./reccobeats";
-
-export interface Intent {
-  purpose: string;
-  audioConstraints: {
-    tempoMin?: number;
-    tempoMax?: number;
-    energyMin?: number;
-    energyMax?: number;
-    valenceMin?: number;
-    valenceMax?: number;
-    popularityHint?: "low" | "mid" | "high";
-  };
-  genres: { include: string[]; exclude: string[] };
-  era?: string | null;
-  requirements: string[];
-  allowKnownArtists: boolean;
-  qualityThreshold: number;
-  notes: string;
-}
-
-export interface LLMRecommendation {
-  artist: string;
-  track: string;
-  why: string;
-  confidence: number;
-}
+import type { Intent, LLMRecommendation } from "./intent-types";
+export type { Intent, LLMRecommendation };
 
 export interface ResolvedLLMTrack {
   track: SpotifyTrack;
