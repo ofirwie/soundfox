@@ -2,6 +2,7 @@
 
 import { searchArtists, type SpotifyArtist } from "../spotify-client";
 import type { BatchUpdate } from "../discovery-pipeline";
+import type { BlacklistEntry } from "../profile";
 
 const UNIVERSAL_BANNED = new Set([
   "children's music", "kids", "lullaby", "nursery",
@@ -21,6 +22,7 @@ export interface SpotifyCandidateOptions {
   allArtistIds: Set<string>;
   allowKnownArtists: boolean;
   signal?: AbortSignal;
+  blacklist?: BlacklistEntry;
   onBatchYield?: (update: Pick<BatchUpdate & { done: false }, "batch" | "totalFound" | "phase" | "message" | "percent" | "done">) => void;
 }
 
@@ -32,6 +34,7 @@ export async function buildSpotifyCandidates(
   opts: SpotifyCandidateOptions,
 ): Promise<SpotifyArtist[]> {
   const { searchTerms, coreGenreSet, allArtistIds, allowKnownArtists, signal } = opts;
+  const blacklistedArtistIds = new Set(opts.blacklist?.artistIds ?? []);
   const MIN_FOLLOWERS = 5_000;
   const MAX_FOLLOWERS = 500_000;
 
@@ -49,6 +52,11 @@ export async function buildSpotifyCandidates(
           if (!allowKnownArtists && allArtistIds.has(artist.id)) continue;
           if (candidateArtists.has(artist.id)) continue;
           if (!isLatinName(artist.name)) continue;
+          // Blacklist filter — BEFORE any scoring or API call
+          if (blacklistedArtistIds.has(artist.id)) {
+            void fetch("/api/log", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "blacklist_skip", reason: "artist", id: artist.id }) }).catch(() => {});
+            continue;
+          }
           candidateArtists.set(artist.id, artist);
         }
       } catch {

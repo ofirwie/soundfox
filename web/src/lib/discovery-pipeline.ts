@@ -77,6 +77,8 @@ export interface ScanOptions {
   minYear?: number;
   allowKnownArtists?: boolean;
   signal?: AbortSignal;
+  /** Per-playlist blacklist — artist+track IDs are filtered BEFORE any API call */
+  blacklist?: import("./profile").BlacklistEntry;
 }
 
 // ─── Orchestration ────────────────────────────────────────────────────────────
@@ -85,7 +87,7 @@ export async function* runPipelineStreaming(
   playlistId: string,
   options: ScanOptions = {},
 ): AsyncGenerator<BatchUpdate> {
-  const { resultCount = 1000, minYear = 2000, allowKnownArtists = false, signal } = options;
+  const { resultCount = 1000, minYear = 2000, allowKnownArtists = false, signal, blacklist } = options;
 
   // Phase 1: load source playlist
   yield { batch: [], totalFound: 0, phase: "analyze", message: "Loading playlist tracks...", percent: 2, done: false };
@@ -139,7 +141,7 @@ export async function* runPipelineStreaming(
   await debugLog({ phase: "BEFORE_search_phase", searchTermsCount: searchTerms.length, searchTerms });
 
   const genrePassedArtists = await buildSpotifyCandidates({
-    searchTerms, coreGenreSet, allArtistIds, allowKnownArtists, signal,
+    searchTerms, coreGenreSet, allArtistIds, allowKnownArtists, signal, blacklist,
     onBatchYield: (u) => { /* progress already shown in buildSpotifyCandidates */ void u; },
   });
 
@@ -149,7 +151,7 @@ export async function* runPipelineStreaming(
 
   // Phase 6: score + emit (SEAM 3 — merge-and-emit)
   yield* mergeAndEmit(
-    { genrePassed: genrePassedArtists, tasteVector, coreGenreSet, existingTrackIds, resultCount, minYear, signal },
+    { genrePassed: genrePassedArtists, tasteVector, coreGenreSet, existingTrackIds, resultCount, minYear, signal, blacklist },
     {
       tasteVector, coreGenres,
       tracksAnalyzed: trackIds.length,

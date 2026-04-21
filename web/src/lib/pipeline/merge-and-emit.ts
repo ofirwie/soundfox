@@ -4,6 +4,7 @@ import { getAudioFeaturesBatch, type AudioFeatures } from "../reccobeats";
 import { scoreCandidate, type TasteVector } from "../taste-engine";
 import { getArtistTopTracks, type SpotifyTrack, type SpotifyArtist } from "../spotify-client";
 import type { BatchUpdate, ScoredTrack } from "../discovery-pipeline";
+import type { BlacklistEntry } from "../profile";
 
 function isLatinName(name: string): boolean {
   return /^[\x00-\x7F\xC0-\xFF\u0100-\u024F\s\-'\.&()\!\?,#+\d]+$/.test(name);
@@ -17,6 +18,7 @@ export interface MergeAndEmitOptions {
   resultCount: number;
   minYear: number;
   signal?: AbortSignal;
+  blacklist?: BlacklistEntry;
 }
 
 /**
@@ -38,6 +40,7 @@ export async function* mergeAndEmit(
     genrePassed, tasteVector, coreGenreSet, existingTrackIds,
     resultCount, minYear, signal,
   } = opts;
+  const blacklistedTrackIds = new Set(opts.blacklist?.trackIds ?? []);
 
   const shuffled = [...genrePassed].sort(() => Math.random() - 0.5);
   const SCORE_CHUNK = 50;
@@ -57,6 +60,10 @@ export async function* mergeAndEmit(
         const topTracks = await getArtistTopTracks(artist.id);
         for (const track of topTracks.sort((a, b) => b.popularity - a.popularity)) {
           if (existingTrackIds.has(track.id)) continue;
+          if (blacklistedTrackIds.has(track.id)) {
+            void fetch("/api/log", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ event: "blacklist_skip", reason: "track", id: track.id }) }).catch(() => {});
+            continue;
+          }
           if (!isLatinName(track.name)) continue;
           if (track.duration_ms < 180_000 || track.duration_ms > 600_000) continue;
           const year = parseInt(track.album.release_date?.slice(0, 4) ?? "0", 10);
